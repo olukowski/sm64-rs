@@ -46,9 +46,13 @@ length checked, and unsupported control flow fails rather than being guessed.
 | 0x2e | 8 | Area collision address +4 |
 
 Other known, non-control declarations are length-checked but not interpreted;
-their opcode counts are included in diagnostics. These include model bindings,
-Mario setup/position, warps, music, terrain type and macro-object pointers.
-Geometry layouts are **not decoded** by this version.
+their opcode counts are included in diagnostics. These include Mario setup/position,
+warps, music, terrain type and macro-object pointers. Model bindings are retained,
+including the layer encoded in direct-display-list declarations. Resident decoded
+segments are retained read-only and excluded from level serialization.
+
+Geometry layouts are decoded separately by the [geometry module](geometry-layouts.md);
+the level-script traverser only records their pointers.
 
 Traversal has a 20,000-instruction budget, 64-call depth, 8 areas and 4,096 object
 declarations per area. These are tool resource limits, not claims about original

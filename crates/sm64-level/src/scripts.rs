@@ -104,7 +104,7 @@ pub(crate) fn inspect(rom: &[u8], mut segments: SegmentMap, entry: u32) -> Resul
     let mut models = BTreeMap::new();
     let mut diagnostics = vec![
         "Static declaration traversal only: native callbacks and gameplay conditions are not executed.".into(),
-        "Geometry-layout pointers are recorded, not decoded. Object behaviors and macro objects are not instantiated.".into(),
+        "Geometry-layout pointers are retained for separate visual decoding. Native object behaviors and macro objects are not instantiated.".into(),
         "Collision parsing stops at COL_TRI_STOP; special-object/environment-box tails are not interpreted.".into(),
     ];
     let mut inspected = 0;

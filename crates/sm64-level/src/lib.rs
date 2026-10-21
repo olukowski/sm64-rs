@@ -1,5 +1,6 @@
 //! Revision-pinned, bounded static course inspection. Not a game-script VM.
 pub mod collision;
+pub mod geo;
 mod scripts;
 pub mod segments;
 
