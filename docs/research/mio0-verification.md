@@ -101,8 +101,10 @@ but does not authenticate a user-selected decoder against the pinned build.
   first output byte. All 79 mismatches were reported; exit status 1 and cleanup
   confirmed. This wrapper is not an alternative decoder or reference evidence.
 - Missing `--rom` / `SM64_ROM`: actionable argument error, exit status 2.
-- `cargo test -p sm64-mio0 -p sm64x --locked`: 35 passed, 1 ROM-dependent test
-  ignored; no failures. `--help` works without a ROM.
+- At the MIO0-verification milestone, before the course/viewer additions,
+  `cargo test -p sm64-mio0 -p sm64x --locked` had 35 passing tests and 1
+  ROM-dependent test ignored; no failures. This is a historical subset count,
+  not the current workspace total. `--help` works without a ROM.
 
 ## Limits
 

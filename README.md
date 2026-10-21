@@ -123,8 +123,26 @@ cargo test --workspace --locked
 cargo test --workspace --locked -- --ignored --nocapture
 ```
 
-Normal tests use authored synthetic data and require no ROM. The ignored local
-reference test skips with a message when `SM64_ROM` is unset.
+Normal tests use authored synthetic data and require no ROM, window or GPU at
+runtime. The two ignored local reference tests skip with a message when
+`SM64_ROM` is unset. Building the viewer/tests still requires Bevy's platform
+build dependencies.
+
+### Linux build requirements
+
+The viewer needs a working graphics driver and graphical session. The local
+smoke test used Linux/Wayland with an NVIDIA Vulkan driver; other platforms have
+not been validated.
+
+For Debian/Ubuntu, the CI build dependencies are:
+
+```sh
+sudo apt-get install build-essential pkg-config libx11-dev libxkbcommon-dev libwayland-dev
+```
+
+On Arch Linux, the corresponding packages are `base-devel`, `pkgconf`, `libx11`,
+`libxkbcommon` and `wayland`. Format-only commands can be built separately with
+`cargo build -p sm64x` without compiling the Bevy viewer.
 
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)

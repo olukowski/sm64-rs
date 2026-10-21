@@ -11,7 +11,20 @@
 - [x] Verified US revision: segment mapping and static BOB level declarations
 - [x] Static collision triangle decoding (570 vertices, 1,060 triangles on BOB)
 - [x] First Bevy collision-mesh viewer and local screenshot smoke test
-- [ ] Geometry layouts, display lists, textures and original course visuals
+- [ ] Preserve decoded segment access/model bindings for visual asset loading
+- [ ] Decode BOB's static geometry-layout hierarchy, transforms and render layers
+- [ ] Decode the Fast3D display-list subset used by BOB (vertices, triangles, nested lists, render state)
+- [ ] Decode the texture formats/material state used by BOB and render textured static terrain
+- [ ] Add a collision overlay and repeatable fixed-camera visual checks
+
+### Recommended next stopping point
+
+A textured static Bob-omb Battlefield viewer, with collision visualization still
+available for alignment checks. Start from the actual geometry-layout pointer,
+not the collision mesh: these are different assets. Native geometry callbacks,
+animated objects and unsupported commands must be reported rather than silently
+guessed. Do not expand to every course or start gameplay in this rendering batch.
+Rendering may initially approximate N64 material effects; label those differences.
 
 ## M2 — Authentic Mario
 - [ ] Headless, fixed-tick Mario actions and original collision rules

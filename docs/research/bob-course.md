@@ -42,6 +42,12 @@ PNG shows all 1,060 nondegenerate triangles, a bounds-fitted overview and clear
 static-collision/diagnostic-color labeling. Screenshots remain ignored in
 `.cache/`; they are not shipped assets or an original-rendering comparison.
 This verifies one local GPU/window-system run, not cross-platform support.
+The verified image is `.cache/bob-viewer-smoke.png`; the corresponding local log
+is `.cache/reports/viewer-smoke.log`. These ignored artifacts may be regenerated.
+
+At the initial course-inspection milestone, formatting and workspace Clippy passed;
+58 install-free tests and both ignored ROM integration tests passed. This is
+that milestone's validation snapshot, not a promise about future test counts.
 
 The loader does not emulate boot/menu behavior. It selects BOB in the verified
 root dispatch table and stops before the native initialization/update call.
