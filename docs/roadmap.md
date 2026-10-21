@@ -3,8 +3,9 @@
 ## M0 — Foundation
 - [x] Local Git repository, Rust workspace, licenses and provenance policy
 - [x] Install-free CI
-- [ ] ROM inspector: canonical identity, N64 header, MIO0 inventory and decoding
-- [ ] Validate inspector against a local ROM; keep output private
+- [x] ROM inspector: canonical identity, N64 header, MIO0 inventory and decoding
+- [x] Validate inspector against a local ROM; keep output private (US revision 0; 79/79 MIO0 candidates decode)
+- [ ] Independently compare decompressed bytes against another decoder
 
 ## M1 — See a course
 - [ ] Verified US revision: segment mapping, level scripts and geometry layouts
