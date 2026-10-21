@@ -29,7 +29,10 @@ Finiteness alone does not establish correct gameplay or portable bitwise results
 `collision::World` consumes `sm64-level::CollisionMesh`, validates indices and
 retains source triangle index, surface ID, force and winding. Degenerates are
 reported and skipped without renumbering surviving triangles. Integer vertices
-are converted to f64 for independently written geometric calculations.
+are converted to f64 for independently written geometric calculations. Height
+queries retain unnormalized integer-derived plane coefficients so source vertices
+remain on inclusive height boundaries; normalized normals are only used for
+classification and reporting.
 
 The caller explicitly chooses a vertical-normal threshold. Normals above it are
 floor candidates, below its negative are ceiling candidates; others are walls.
@@ -98,8 +101,9 @@ cargo run -p sm64x -- trace compare \
 must not be presented as an original-game trace. Trace tools open inputs read-only
 and write reports to stdout, never create/truncate an output file. JSON comparison
 reports identify the float policy, sources, lengths and first differing tick/field.
-Equality exits zero; divergence, malformed traces and incompatible protocols exit
-nonzero. Invalid traces produce diagnostics on stderr rather than a comparison
+A successfully reported equality exits zero; divergence, malformed traces,
+incompatible protocols and comparison report-write failures exit nonzero. Unlike
+plain inspection commands, comparisons do not suppress broken-pipe failures. Invalid traces produce diagnostics on stderr rather than a comparison
 report. Use shell redirection only into ignored local destinations for real data.
 No gameplay `replay` command is exposed while no real `TickModel` is implemented.
 

@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::{
     fs,
     path::PathBuf,
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -184,6 +184,30 @@ fn lengths_and_initial_observations_are_not_silently_ignored() {
         value(&output)["difference"]["field"],
         "initial_state.face_yaw"
     );
+}
+
+#[test]
+fn divergent_comparison_never_succeeds_when_stdout_is_closed() {
+    let f = Fixture::new();
+    f.mutate(|v| v["frames"][0]["state"]["action"] = 123.into());
+    // A pre-closed reader forces a report-write failure without a scheduling race.
+    for json in [true, false] {
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        let mut command = command();
+        command
+            .args(["trace", "compare"])
+            .arg(&f.expected)
+            .arg(&f.actual);
+        if json {
+            command.arg("--json");
+        }
+        let output = command.stdout(Stdio::from(writer)).output().unwrap();
+        assert!(
+            !output.status.success(),
+            "divergence must survive a broken output pipe"
+        );
+    }
 }
 
 #[test]

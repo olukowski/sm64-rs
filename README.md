@@ -152,7 +152,8 @@ cargo run -p sm64x -- collision bob --at 0,1000,0 --min-y=-1000 --max-y=1000
 Y in `--at` selects the wall probe slice. The floor and ceiling are selected across
 the height interval, not necessarily below/above that Y. Original coordinate
 quantization, surface exclusions and wall pushes are not implemented. See
-[simulation boundaries and reference-validation gate](docs/simulation.md).
+[simulation boundaries and reference-validation gate](docs/simulation.md) and
+[local validation notes](docs/research/headless-foundation.md).
 
 Trace tools work without a ROM. This checked-in example is **authored synthetic
 data**, not an original-game capture:

@@ -170,6 +170,23 @@ fn empty_degenerate_and_extreme_i16_geometry() {
 }
 
 #[test]
+fn sloped_source_vertices_stay_inside_inclusive_height_bounds() {
+    let vertices = [[84, 15, 46], [-26, -44, -10], [47, 88, -36]];
+    for indices in [[0, 1, 2], [2, 1, 0]] {
+        let w = world(&vertices, &[indices]);
+        for [x, y, z] in vertices {
+            let y = f64::from(y);
+            let hit = w.vertical(f64::from(x), f64::from(z), y, y).unwrap();
+            let hit = hit
+                .floor
+                .or(hit.ceiling)
+                .expect("source vertex must be in its triangle");
+            assert_eq!(hit.height, y);
+        }
+    }
+}
+
+#[test]
 fn invalid_indices_thresholds_and_queries_fail_explicitly() {
     let mesh = mesh(&[[0, 0, 0]], &[[0, 0, 1]]);
     assert!(matches!(

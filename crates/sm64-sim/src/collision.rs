@@ -45,6 +45,9 @@ pub struct Surface {
     pub normal: Point,
     #[serde(skip)]
     vertices: [Point; 3],
+    /// Integer-derived plane coefficients avoid normalizing before height queries.
+    #[serde(skip)]
+    plane_normal: Point,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -128,6 +131,7 @@ impl World {
                 kind,
                 normal,
                 vertices,
+                plane_normal: cross,
             });
         }
         Ok(Self {
@@ -159,9 +163,12 @@ impl World {
             if surface.kind == Kind::Wall || !contains_xz(surface.vertices, x, z) {
                 continue;
             }
-            let [nx, ny, nz] = surface.normal;
+            let [nx, ny, nz] = surface.plane_normal;
             let origin = surface.vertices[0];
-            let height = origin[1] - (nx * (x - origin[0]) + nz * (z - origin[2])) / ny;
+            // Keep integer-derived coefficients unnormalized. At source vertices
+            // this numerator is exact in f64, including on sloped triangles; a
+            // normalized plane can round a vertex outside an inclusive Y bound.
+            let height = (ny * origin[1] - nx * (x - origin[0]) - nz * (z - origin[2])) / ny;
             if height < min_y || height > max_y {
                 continue;
             }

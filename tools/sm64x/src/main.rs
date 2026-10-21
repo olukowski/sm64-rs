@@ -271,7 +271,17 @@ fn run(cli: Cli) -> Result<()> {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    let cli = Cli::parse();
+    // Inspection output may be intentionally discarded by `head`. Comparisons
+    // instead promise a reliable failure status: a report-write error must not
+    // mask a detected divergence (or otherwise claim successful comparison).
+    let allow_broken_pipe = !matches!(
+        &cli.command,
+        Command::Trace {
+            command: trace::Command::Compare { .. }
+        }
+    );
+    match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             let broken_pipe = error
@@ -282,7 +292,7 @@ fn main() -> ExitCode {
                     .is_some_and(|error| {
                         error.io_error_kind() == Some(std::io::ErrorKind::BrokenPipe)
                     });
-            if broken_pipe {
+            if broken_pipe && allow_broken_pipe {
                 return ExitCode::SUCCESS;
             }
             let _ = writeln!(std::io::stderr().lock(), "error: {error:#}");
