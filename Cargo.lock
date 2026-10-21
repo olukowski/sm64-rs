@@ -4230,6 +4230,7 @@ name = "sm64-level"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "sm64-mio0",
  "sm64-rom",
  "thiserror 2.0.21",

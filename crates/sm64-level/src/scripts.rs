@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use crate::collision::parse_static_collision;
 use crate::segments::SegmentMap;
-use crate::{Area, Error, Level, ObjectSpawn};
+use crate::{Area, Error, Level, ModelBinding, ObjectSpawn};
 
 const MAX_COMMANDS: usize = 20_000;
 const MAX_CALL_DEPTH: usize = 64;
@@ -101,6 +101,7 @@ pub(crate) fn inspect(rom: &[u8], mut segments: SegmentMap, entry: u32) -> Resul
     let mut areas: Vec<Area> = Vec::new();
     let mut active = None;
     let mut ignored = BTreeMap::<u8, usize>::new();
+    let mut models = BTreeMap::new();
     let mut diagnostics = vec![
         "Static declaration traversal only: native callbacks and gameplay conditions are not executed.".into(),
         "Geometry-layout pointers are recorded, not decoded. Object behaviors and macro objects are not instantiated.".into(),
@@ -157,6 +158,22 @@ pub(crate) fn inspect(rom: &[u8], mut segments: SegmentMap, entry: u32) -> Resul
                 let slot = u8::try_from(command.half(2))
                     .map_err(|_| Error::Data("invalid load segment".into()))?;
                 segments.load(rom, slot, command.word(4), command.word(8), opcode != 0x17)?;
+            }
+            0x21 | 0x22 => {
+                command.expect_len(8)?;
+                let encoded = command.half(2);
+                let (model, layer) = if opcode == 0x21 {
+                    (encoded & 0x0fff, Some((encoded >> 12) as u8))
+                } else {
+                    (encoded, None)
+                };
+                models.insert(
+                    model,
+                    ModelBinding {
+                        address: command.word(4),
+                        layer,
+                    },
+                );
             }
             0x1f => {
                 command.expect_len(8)?;
@@ -227,7 +244,7 @@ pub(crate) fn inspect(rom: &[u8], mut segments: SegmentMap, entry: u32) -> Resul
                 command.expect_len(4)?;
                 *ignored.entry(opcode).or_default() += 1;
             }
-            0x21 | 0x22 | 0x26 | 0x27 | 0x2f | 0x33 | 0x36 | 0x39 => {
+            0x26 | 0x27 | 0x2f | 0x33 | 0x36 | 0x39 => {
                 command.expect_len(8)?;
                 *ignored.entry(opcode).or_default() += 1;
             }
@@ -255,6 +272,8 @@ pub(crate) fn inspect(rom: &[u8], mut segments: SegmentMap, entry: u32) -> Resul
         name: "Bob-omb Battlefield".into(),
         areas,
         segments: segments.history().to_vec(),
+        segment_data: segments,
+        models,
         diagnostics,
         commands_inspected: inspected,
     })

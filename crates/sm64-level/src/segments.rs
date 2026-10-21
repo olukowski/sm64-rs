@@ -7,6 +7,7 @@ const MAX_SEGMENT_SIZE: usize = 16 * 1024 * 1024;
 const MAX_TOTAL_SIZE: usize = 64 * 1024 * 1024;
 const MAX_LOADS: usize = 512;
 
+#[derive(Debug, Clone)]
 struct Segment {
     info: SegmentInfo,
     bytes: Vec<u8>,
@@ -14,6 +15,7 @@ struct Segment {
 
 /// The top byte selects a slot; the low 24 bits are a byte offset in that slot.
 /// This is address resolution only, not emulation of the game's heap/allocators.
+#[derive(Debug, Clone)]
 pub struct SegmentMap {
     slots: Vec<Option<Segment>>,
     loaded_bytes: usize,
@@ -99,6 +101,23 @@ impl SegmentMap {
                     segment.bytes.len()
                 ))
             })
+    }
+
+    /// Fixed-size access without crossing the decoded segment boundary.
+    pub fn resolve_range(&self, address: u32, length: usize) -> Result<&[u8], Error> {
+        self.resolve(address)?.get(..length).ok_or_else(|| {
+            Error::Data(format!(
+                "range at 0x{address:08x} ({length} bytes) exceeds segment"
+            ))
+        })
+    }
+
+    /// Read-only resident data. It must never be serialized as project fixtures.
+    pub fn data(&self, slot: u8) -> Option<&[u8]> {
+        self.slots
+            .get(usize::from(slot))
+            .and_then(Option::as_ref)
+            .map(|segment| segment.bytes.as_slice())
     }
 
     pub fn history(&self) -> &[SegmentInfo] {

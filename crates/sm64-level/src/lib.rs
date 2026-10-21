@@ -60,10 +60,21 @@ pub struct SegmentInfo {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ModelBinding {
+    pub address: u32,
+    /// None for geometry layouts; display-list declarations carry a render layer.
+    pub layer: Option<u8>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct Level {
     pub name: String,
     pub areas: Vec<Area>,
     pub segments: Vec<SegmentInfo>,
+    /// Resident game bytes stay private; serialized level reports contain metadata only.
+    #[serde(skip)]
+    pub segment_data: segments::SegmentMap,
+    pub models: std::collections::BTreeMap<u16, ModelBinding>,
     pub diagnostics: Vec<String>,
     pub commands_inspected: usize,
 }
@@ -85,6 +96,29 @@ pub fn load_bob(rom: &Rom) -> Result<Level, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resident_segments_are_never_serialized() {
+        let mut segment_data = segments::SegmentMap::default();
+        segment_data.load(b"AUTHORED", 7, 0, 8, false).unwrap();
+        let level = Level {
+            name: "fixture".into(),
+            areas: vec![],
+            segments: segment_data.history().to_vec(),
+            segment_data,
+            models: Default::default(),
+            diagnostics: vec![],
+            commands_inspected: 0,
+        };
+        let value = serde_json::to_value(&level).unwrap();
+        assert!(value.get("segment_data").is_none());
+        assert_eq!(
+            level.segment_data.resolve_range(0x07000002, 3).unwrap(),
+            b"THO"
+        );
+        assert!(level.segment_data.resolve_range(0x07000007, 2).is_err());
+        assert_eq!(level.segment_data.data(7).unwrap(), b"AUTHORED");
+    }
 
     #[test]
     fn unknown_rom_is_rejected_before_revision_specific_reads() {
