@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "tools/*"]
+members = ["crates/*", "tools/*", "viewer"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,13 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace.dependencies]
+sm64-level = { path = "crates/sm64-level" }
+bevy = { version = "0.20", default-features = false, features = [
+    "std", "async_executor", "multi_threaded", "bevy_asset", "bevy_log",
+    "bevy_winit", "bevy_pbr", "bevy_render", "bevy_core_pipeline",
+    "bevy_camera", "bevy_mesh", "bevy_light", "bevy_shader", "bevy_material",
+    "bevy_ui_render", "default_font", "png", "x11", "wayland",
+] }
 sm64-rom = { path = "crates/sm64-rom" }
 sm64-mio0 = { path = "crates/sm64-mio0" }
 anyhow = "1"
@@ -24,3 +31,7 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# Keep interactive rendering usable in development builds.
+[profile.dev.package."*"]
+opt-level = 3

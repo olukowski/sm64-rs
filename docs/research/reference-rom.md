@@ -26,9 +26,11 @@ exercise literals, references, overlap, truncation and limits.
 
 ## What it does not establish
 
-This is not a complete asset inventory, independent byte-for-byte comparison
-against a second decoder, N64 boot/checksum verification, or gameplay fidelity.
-No level scripts or native game functions have been interpreted yet.
+This initial check alone did not establish independent byte-for-byte agreement,
+asset completeness, N64 boot/checksum validity or gameplay fidelity. Subsequent
+[independent decoder verification](mio0-verification.md) matched all 79 outputs;
+[course inspection](bob-course.md) now reads BOB's static declarations and collision.
+No native game functions have been executed or reimplemented yet.
 
 ## Reproduce locally
 

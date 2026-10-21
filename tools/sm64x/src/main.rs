@@ -1,5 +1,6 @@
 //! Read-only ROM inspection; extraction always creates a new output file.
 
+mod level;
 mod mio0;
 
 use std::fs::{self, OpenOptions};
@@ -32,6 +33,11 @@ struct Cli {
 enum Command {
     /// Show canonical hashes, exact revision recognition, and N64 header fields.
     Info,
+    /// Inspect course scripts and static collision (US revision 0 only).
+    Level {
+        #[arg(value_parser = ["bob"])]
+        course: String,
+    },
     /// Inspect MIO0 signature candidates or decode a block.
     Mio0 {
         #[command(subcommand)]
@@ -214,6 +220,10 @@ fn run(cli: Cli) -> Result<()> {
     let rom = Rom::open(&path).with_context(|| format!("could not inspect {}", path.display()))?;
     match cli.command {
         Command::Info => info(&rom, cli.json),
+        Command::Level { course: _ } => {
+            let course = sm64_level::load_bob(&rom)?;
+            level::report(&course, cli.json)
+        }
         Command::Mio0 { command } => match command {
             Mio0Command::List {
                 validate,

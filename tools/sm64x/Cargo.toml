@@ -12,6 +12,7 @@ serde.workspace = true
 serde_json.workspace = true
 sm64-rom.workspace = true
 sm64-mio0.workspace = true
+sm64-level.workspace = true
 
 [lints]
 workspace = true

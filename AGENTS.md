@@ -1,7 +1,8 @@
 # sm64-rs
 
 A behavior-faithful native reimplementation of Super Mario 64 in Rust. Bevy is the
-planned presentation layer, not the source of gameplay physics. This is not an emulator.
+presentation layer, not the source of gameplay physics. The current viewer shows
+static collision only; no gameplay is implemented. This is not an emulator.
 
 ## Provenance and safety
 

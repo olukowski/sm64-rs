@@ -175,6 +175,25 @@ fn validates_and_decodes_without_overwriting() {
 }
 
 #[test]
+fn course_inspection_rejects_unknown_revisions_and_unsupported_courses() {
+    let fixture = Fixture::new();
+    let output = fixture
+        .command()
+        .args(["level", "bob", "--json"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("exact US revision 0"));
+    assert!(output.stdout.is_empty());
+    let output = fixture
+        .command()
+        .args(["level", "not-a-course"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}
+
+#[test]
 fn rejects_invalid_offsets_and_truncated_roms() {
     let fixture = Fixture::new();
     for offset in ["0x1000", "0", "-1", "99999999999999999999999999999"] {

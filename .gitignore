@@ -12,4 +12,6 @@ roms/
 *.[zZ][iI][pP]
 *.7z
 *.rar
+__pycache__/
+*.pyc
 .DS_Store

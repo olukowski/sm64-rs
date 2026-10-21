@@ -5,11 +5,13 @@
 - [x] Install-free CI
 - [x] ROM inspector: canonical identity, N64 header, MIO0 inventory and decoding
 - [x] Validate inspector against a local ROM; keep output private (US revision 0; 79/79 MIO0 candidates decode)
-- [ ] Independently compare decompressed bytes against another decoder
+- [x] Independently compare decompressed bytes against another decoder (79/79 byte-for-byte matches)
 
 ## M1 — See a course
-- [ ] Verified US revision: segment mapping, level scripts and geometry layouts
-- [ ] Display lists, textures and a Bob-omb Battlefield viewer
+- [x] Verified US revision: segment mapping and static BOB level declarations
+- [x] Static collision triangle decoding (570 vertices, 1,060 triangles on BOB)
+- [x] First Bevy collision-mesh viewer and local screenshot smoke test
+- [ ] Geometry layouts, display lists, textures and original course visuals
 
 ## M2 — Authentic Mario
 - [ ] Headless, fixed-tick Mario actions and original collision rules
