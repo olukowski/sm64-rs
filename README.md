@@ -80,6 +80,7 @@ cargo run -p sm64x -- level bob --visuals --json
 | --- | --- |
 | `info` | Size, source byte order, canonical SHA-1/SHA-256, exact revision recognition, N64 header |
 | `level bob [--visuals]` | Segment loads, static declarations and collision; optionally decode geometry/display lists/textures and report metadata |
+| `collision bob --at X,Y,Z` | Diagnostic static floor/ceiling/wall probes; not original gameplay collision |
 | `mio0 list` | Find signature candidates and validate their headers |
 | `mio0 list --validate` | Additionally decode candidates to check their stream structure |
 | `mio0 decode OFFSET [--out PATH]` | Decode one block into a **new** output file |
@@ -133,6 +134,24 @@ The textured viewer renders 1,101 visual triangles and 18 uploaded textures, wit
 local GPU checks for textured/overlay/collision modes. See
 [textured milestone notes](docs/research/textured-bob.md).
 
+## Headless foundation
+
+`sm64-sim` now provides engine-free explicit ticks, raw input/button edges and
+state validation with a caller-supplied transition model. It does **not** implement
+Mario movement yet. Static geometric probes have authored slope/ledge/corner tests;
+these are not the original game's collision solver.
+
+```sh
+cargo run -p sm64x -- collision bob --at 0,1000,0 --json
+# Highest floor / lowest ceiling within an explicit inclusive height interval:
+cargo run -p sm64x -- collision bob --at 0,1000,0 --min-y=-1000 --max-y=1000
+```
+
+Y in `--at` selects the wall probe slice. The floor and ceiling are selected across
+the height interval, not necessarily below/above that Y. Original coordinate
+quantization, surface exclusions and wall pushes are not implemented. See
+[simulation boundaries and reference-validation gate](docs/simulation.md).
+
 ## Development
 
 ```sh
@@ -166,6 +185,7 @@ On Arch Linux, the corresponding packages are `base-devel`, `pkgconf`, `libx11`,
 
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
+- [Simulation foundation and evidence boundaries](docs/simulation.md)
 - [N64 ROM format notes](docs/formats/n64-rom.md)
 - [MIO0 format notes](docs/formats/mio0.md)
 - [Segments, scripts and collision](docs/formats/level-scripts.md)

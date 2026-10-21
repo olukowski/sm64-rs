@@ -11,8 +11,11 @@ sm64x                       CLI identity, extraction, course/visual metadata rep
 sm64-viewer (Bevy)           textured static BOB terrain, diagnostic collision
                             view/edges, free camera and PNG capture
 
-future headless simulation  Mario, original collision rules, original camera,
-                            objects and progression; explicit game ticks
+sm64-sim                    engine-free explicit-tick/input/state foundation;
+                            static geometric probes (not original collision rules)
+
+future gameplay models      Mario actions, original collision rules/camera,
+                            objects and progression; no movement model yet
 ```
 
 All format crates are engine-free. The viewer presents parsed content; it does not
@@ -66,6 +69,14 @@ must not use triangle-only depth bias.
 
 Collision tails, macro/special objects, native behaviors, moving objects, original
 camera/audio/gameplay, skyboxes and native environment effects remain absent.
+
+## Headless foundation
+
+`sm64-sim` advances only when explicitly stepped with caller-supplied raw input
+and a `TickModel`. There is no built-in movement model. Its static geometric
+queries are diagnostic primitives, not the original floor/ceiling/wall solver.
+State uses original units and stays independent of Bevy and viewer transforms.
+See [simulation boundaries and evidence gate](simulation.md).
 
 ## Verification
 

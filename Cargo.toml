@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 sm64-level = { path = "crates/sm64-level" }
+sm64-sim = { path = "crates/sm64-sim" }
 sm64-gfx = { path = "crates/sm64-gfx" }
 bevy = { version = "0.20", default-features = false, features = [
     "std", "async_executor", "multi_threaded", "bevy_asset", "bevy_log",

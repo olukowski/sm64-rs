@@ -1,5 +1,6 @@
 //! Read-only ROM inspection; extraction always creates a new output file.
 
+mod collision;
 mod level;
 mod mio0;
 
@@ -41,6 +42,8 @@ enum Command {
         #[arg(long)]
         visuals: bool,
     },
+    /// Probe static geometry (diagnostic, NOT original-game collision rules).
+    Collision(collision::Options),
     /// Inspect MIO0 signature candidates or decode a block.
     Mio0 {
         #[command(subcommand)]
@@ -223,6 +226,7 @@ fn run(cli: Cli) -> Result<()> {
     let rom = Rom::open(&path).with_context(|| format!("could not inspect {}", path.display()))?;
     match cli.command {
         Command::Info => info(&rom, cli.json),
+        Command::Collision(options) => collision::run(&rom, options, cli.json),
         Command::Level { course: _, visuals } => {
             let course = sm64_level::load_bob(&rom)?;
             level::report(&course, cli.json, visuals)

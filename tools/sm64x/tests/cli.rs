@@ -302,6 +302,81 @@ fn early_closing_output_consumer_does_not_cause_a_panic() {
 }
 
 #[test]
+fn collision_probes_require_revision_and_valid_arguments() {
+    let fixture = Fixture::new();
+    let output = fixture
+        .command()
+        .args(["collision", "bob", "--at", "0,0,0"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("exact US revision 0"));
+    for at in ["NaN,0,0", "0,0", "1000001,0,0"] {
+        let output = fixture
+            .command()
+            .args(["collision", "bob", "--at", at])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("--at"));
+    }
+    assert!(
+        bare_command()
+            .args(["collision", "--help"])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+}
+
+#[test]
+#[ignore = "needs the US revision 0 ROM via SM64_ROM"]
+fn local_bob_collision_probe_is_diagnostic_and_read_only() {
+    let Some(path) = std::env::var_os("SM64_ROM") else {
+        eprintln!("skipped: set SM64_ROM to a user-supplied US revision 0 ROM");
+        return;
+    };
+    let before = fs::read(&path).unwrap();
+    let value = json(
+        bare_command()
+            .env("SM64_ROM", &path)
+            .args(["collision", "bob", "--at", "0,1000,0", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        value["status"],
+        "diagnostic_geometry_not_original_collision"
+    );
+    let count: u64 = value["surface_counts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap())
+        .sum();
+    assert_eq!(count + value["skipped_degenerate"].as_u64().unwrap(), 1060);
+    assert!(value.get("vertices").is_none());
+    assert!(value["vertical"]["floor"]["height"].is_number());
+    assert_eq!(fs::read(&path).unwrap(), before);
+    for args in [
+        vec!["--min-y", "10", "--max-y", "0"],
+        vec!["--radius=NaN"],
+        vec!["--radius=-1"],
+        vec!["--vertical-threshold", "0"],
+        vec!["--area", "2"],
+    ] {
+        let output = bare_command()
+            .env("SM64_ROM", &path)
+            .args(["collision", "bob", "--at", "0,0,0"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+    }
+}
+
+#[test]
 #[ignore = "needs the US revision 0 ROM via SM64_ROM"]
 fn local_bob_visual_inventory_is_metadata_only() {
     let Some(path) = std::env::var_os("SM64_ROM") else {

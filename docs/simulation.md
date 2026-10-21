@@ -1,0 +1,113 @@
+# Headless simulation and reference validation
+
+## Status and boundaries
+
+`sm64-sim` is an engine-free foundation, **not implemented Mario movement**.
+It provides explicit transitions over raw state, button edges, and static geometric
+probes. No Bevy time, physics engine, render scale, wall-clock accumulator or
+implicit movement model participates. A caller must supply a `TickModel`.
+
+`MarioState` currently stores position, velocity, forward velocity, binary facing
+angle and uninterpreted action bits. This is a small observation surface, not a
+complete original state or save-state: action timers, collision references, object
+state, camera-relative intended movement, animation and other state are absent.
+Default action zero does not mean idle. Coordinates are original game units.
+
+A transition numbered N consumes raw input N and produces post-transition state N.
+The runner's counter identifies the **next** transition; it increments once per
+successful `step`. Restoring a snapshot must also restore previous raw input to
+avoid turning held buttons into new presses. Stick values remain signed bytes;
+normalization/deadzones are not guessed. All 16 raw button bits are preserved.
+
+Invalid initial/output floats, model errors and counter overflow fail explicitly.
+State, input history and tick commit together. Model-internal effects cannot be
+rolled back; models needing retry determinism must manage those separately.
+Finiteness alone does not establish correct gameplay or portable bitwise results.
+
+## Static geometric probes
+
+`collision::World` consumes `sm64-level::CollisionMesh`, validates indices and
+retains source triangle index, surface ID, force and winding. Degenerates are
+reported and skipped without renumbering surviving triangles. Integer vertices
+are converted to f64 for independently written geometric calculations.
+
+The caller explicitly chooses a vertical-normal threshold. Normals above it are
+floor candidates, below its negative are ceiling candidates; others are walls.
+This is a diagnostic policy, **not a verified original-engine classifier**.
+No surface-ID exclusions or gameplay effects are applied.
+
+- `vertical(x,z,min_y,max_y)`: highest upward-facing and lowest downward-facing
+  triangles within an inclusive interval. Both windings are tested in XZ;
+  edges/vertices are included. Equal-height ties retain source order.
+- `walls(position,radius)`: two-sided candidates whose horizontal triangle slice
+  is within the requested XZ radius. Returns closest points, not a pushed position.
+  Corners may yield multiple contacts; coplanar triangles are not deduplicated.
+
+These are not Mario floor/ceiling/wall collision rules. Original coordinate
+conversion, spatial partition traversal, wall projection/push ordering, one-sided
+contacts, step tolerances, special-surface exclusions and moving collision still
+need revision-pinned behavioral evidence and separate tests. Do not use these
+probes as a substitute for that solver. Linear traversal is intentional for the
+small static BOB mesh, not an imitation of original broad-phase ordering.
+
+Tool limits: 200,000 triangles; finite query coordinates, bounds and radius within
++/-1,000,000 units; nonnegative radius. These are not original game boundaries.
+
+## Reference trace format v1
+
+`reference::Trace` is a strict, versioned JSON observation stream. It requires the
+canonical US revision 0 SHA-256, a declared source (`reference`, `native`, or
+`authored`), scenario, producer/version/settings, initialization, input sampling
+point and state observation boundary. Metadata is a producer's assertion, not
+proof of execution or provenance. Authored tests are always labeled `authored`.
+
+A trace stores an initial observation, previous raw input, start tick and one
+input/post-state frame per transition. Frame N consumes input N; the initial state
+is before the start tick. There are no missing/duplicate ticks and no implicit
+frame-to-tick conversion. A trace is **not** a save-state. Initialize hidden model
+state and world separately before using `reference::replay`.
+
+`Trace::read` caps encoded input at 32 MiB before parsing. Traces require 1..=100,000
+frames; unsupported versions/revisions, unknown or missing fields, blank metadata,
+nonfinite state and tick overflow fail explicitly. `Trace::write` validates before
+writing; it does not own output paths or provide filesystem atomicity.
+
+`reference::compare` validates both complete streams, checks compatible scenario,
+sampling point, observation boundary and start tick, then reports the first input
+or state difference (including initial state/input and unequal lengths). Producer,
+source, settings and initialization are retained for human review, not required to
+be identical across different implementations. Equal observations do not establish
+equivalent hidden state or capture correctness.
+
+Floats default to exact f32 **bit** comparison, including signed zero. An explicit
+absolute tolerance is available; it must be finite/nonnegative and applies only
+to floats. Integers, binary facing angle, action and controller bits compare
+exactly. Difference reports include float bits. `reference::replay` runs a
+caller-supplied model against recorded inputs; there is no built-in gameplay model.
+
+## Evidence and next gate
+
+Authored tests establish infrastructure semantics and mathematical geometry only.
+Ignored ROM tests inspect BOB read-only and check probe consistency; they do not
+compare against an original-game execution. Collision asset format references
+remain in [level-scripts.md](formats/level-scripts.md); geometric intersection
+math and the explicit policies above are new implementation choices, not claims
+inferred from the format documentation.
+
+Before implementing authentic movement, obtain a trusted reference runner with:
+
+1. Exact canonical US revision 0 identity (never infer from filename).
+2. Reproducible initialization and raw controller injection.
+3. An explicitly measured input sampling point and state observation boundary.
+   A video frame or controller poll must not be assumed to equal one game tick.
+4. A revision-pinned runtime address/field map independently checked against state
+   changes. Record observations, uncertainties, runner versions and settings.
+5. Short repeatable idle, stick threshold, acceleration, braking, turning,
+   jump/landing, slope and wall-contact sequences.
+
+No reference emulator/debugger capture adapter or verified runtime field map is
+currently supplied. The original ROM alone does not execute itself as an oracle.
+Do not replace missing observations with generic acceleration/gravity constants.
+Keep all game-derived captures under ignored `traces/` or `.cache/`; commit only
+capture tooling, documentation and authored synthetic tests. See
+[ADR 0001](adr/0001-provenance.md).

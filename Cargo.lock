@@ -4260,6 +4260,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sm64-sim"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sm64-level",
+ "sm64-rom",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "sm64-viewer"
 version = "0.1.0"
 dependencies = [
@@ -4284,6 +4295,7 @@ dependencies = [
  "sm64-level",
  "sm64-mio0",
  "sm64-rom",
+ "sm64-sim",
 ]
 
 [[package]]
