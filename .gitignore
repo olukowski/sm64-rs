@@ -1,0 +1,15 @@
+/target/
+# All game-derived material stays local.
+.cache/
+extracted/
+traces/
+roms/
+*.[zZ]64
+*.[vV]64
+*.[nN]64
+*.[rR][oO][mM]
+*.[bB][iI][nN]
+*.[zZ][iI][pP]
+*.7z
+*.rar
+.DS_Store
