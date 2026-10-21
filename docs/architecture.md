@@ -82,7 +82,10 @@ Versioned traces compare exact float bits by default, validate protocol alignmen
 and can replay raw inputs through a caller-initialized model. CLI trace commands
 need no ROM and do not provide a fake gameplay replay model.
 State uses original units and stays independent of Bevy and viewer transforms.
-See [simulation boundaries and evidence gate](simulation.md).
+See [simulation boundaries and evidence gate](simulation.md). Optional
+`scripts/reference_emulator/` tooling acquires a separate pinned emulator and
+captures private US0 action observations; it is not linked into the Rust runtime.
+See [reference setup and evidence](reference-emulator.md).
 
 ## Verification
 

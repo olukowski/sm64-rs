@@ -55,10 +55,11 @@ cargo run -p sm64x --locked -- trace compare \
 
 ## Next external dependency
 
-No reference capture runner is configured. A bounded local check found none of
+At these foundation commits, no reference capture runner was configured. A bounded local check found none of
 the checked common N64 emulator executables on PATH; that is not proof no emulator
 exists anywhere on the machine. The user ROM is available, but a trusted debug/
 emulator runner and independently verified runtime field/tick mapping are still
 needed. Capture initialization and timing must be validated before implementing
 and claiming faithful walking/jumping behavior. Installing/downloading a ROM is
-neither needed nor allowed.
+neither needed nor allowed. Subsequent work supplied a pinned local runner and
+repeatable US0 action captures; see [reference emulator notes](../reference-emulator.md).

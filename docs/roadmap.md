@@ -34,11 +34,13 @@ more accurate combiners/lighting/filtering, skybox and generated effects.
 - [x] Authored static geometric probe tests (not original collision rules)
 - [ ] Headless, fixed-tick Mario actions and original collision rules
 - [x] Versioned observation/input traces, caller-model replay and first-divergence comparisons (authored tests)
-- [ ] Original-game reference capture adapter, field map and verified movement comparisons
+- [x] Local pinned US0 reference capture adapter, initial field/boundary corroboration and repeatable movement observations
+- [ ] Native movement models and original-versus-native comparisons
 - [ ] Animation and camera integration
 
 See [simulation.md](simulation.md) for implemented boundaries and the reference
-capture gate. Mathematical probes and deterministic toy replay tests must not be
+capture contract; [local emulator notes](reference-emulator.md) document the first
+repeatable original-game observations. Mathematical probes and toy replay tests must not be
 reported as verified Mario behavior.
 
 ## M3 — First playable slice

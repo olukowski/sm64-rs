@@ -170,8 +170,9 @@ cargo run -p sm64x -- trace compare \
 
 The library can replay inputs against a caller-supplied model; no gameplay replay
 CLI is offered until a real model exists. A trace is an observation stream, not a
-save-state or proof of capture authenticity. An original-game capture adapter and
-verified runtime field map are still needed before validating movement.
+save-state or proof of capture authenticity. An optional [local reference emulator and capture adapter](docs/reference-emulator.md)
+now produces repeatable US0 action-boundary traces. Native movement and original
+collision resolution are still unimplemented.
 
 ## Development
 
@@ -207,6 +208,7 @@ On Arch Linux, the corresponding packages are `base-devel`, `pkgconf`, `libx11`,
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Simulation foundation and evidence boundaries](docs/simulation.md)
+- [Local reference emulator setup and capture](docs/reference-emulator.md)
 - [N64 ROM format notes](docs/formats/n64-rom.md)
 - [MIO0 format notes](docs/formats/mio0.md)
 - [Segments, scripts and collision](docs/formats/level-scripts.md)

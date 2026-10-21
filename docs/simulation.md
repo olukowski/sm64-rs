@@ -109,9 +109,10 @@ No gameplay `replay` command is exposed while no real `TickModel` is implemented
 
 ### Capture adapter handoff
 
-A future adapter should produce the same schema, rather than force the comparator
-to infer runtime memory layout or poll timing. Record all of the following before
-claiming a first reference comparison:
+The optional [local Mupen64Plus adapter](reference-emulator.md) now produces this
+schema for checked US0 action boundaries. Other adapters/cases should use the same
+schema rather than force the comparator to infer memory layout or poll timing.
+Record all of the following before claiming a reference comparison:
 
 - Emulator/core/plugin versions, relevant settings, tool build/version and ROM
   canonical hash in the manifest. Use `source: reference` only for real captures.
@@ -142,7 +143,7 @@ remain in [level-scripts.md](formats/level-scripts.md); geometric intersection
 math and the explicit policies above are new implementation choices, not claims
 inferred from the format documentation.
 
-Before implementing authentic movement, obtain a trusted reference runner with:
+For authentic movement research, require a reference runner with:
 
 1. Exact canonical US revision 0 identity (never infer from filename).
 2. Reproducible initialization and raw controller injection.
@@ -153,8 +154,10 @@ Before implementing authentic movement, obtain a trusted reference runner with:
 5. Short repeatable idle, stick threshold, acceleration, braking, turning,
    jump/landing, slope and wall-contact sequences.
 
-No reference emulator/debugger capture adapter or verified runtime field map is
-currently supplied. The original ROM alone does not execute itself as an oracle.
+A pinned local US0 action-capture adapter and initial runtime/layout corroboration
+are now available; two independent cold boots produced bit-equal movement windows.
+See [setup, evidence and limitations](reference-emulator.md). This is not a full
+runtime-state map, hardware equivalence proof or native-model validation.
 Do not replace missing observations with generic acceleration/gravity constants.
 Keep all game-derived captures under ignored `traces/` or `.cache/`; commit only
 capture tooling, documentation and authored synthetic tests. See
