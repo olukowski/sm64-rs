@@ -81,6 +81,8 @@ cargo run -p sm64x -- level bob --visuals --json
 | `info` | Size, source byte order, canonical SHA-1/SHA-256, exact revision recognition, N64 header |
 | `level bob [--visuals]` | Segment loads, static declarations and collision; optionally decode geometry/display lists/textures and report metadata |
 | `collision bob --at X,Y,Z` | Diagnostic static floor/ceiling/wall probes; not original gameplay collision |
+| `trace validate PATH` | Validate a versioned observation trace; no ROM needed |
+| `trace compare EXPECTED ACTUAL` | First input/state divergence; exact float bits by default; no ROM needed |
 | `mio0 list` | Find signature candidates and validate their headers |
 | `mio0 list --validate` | Additionally decode candidates to check their stream structure |
 | `mio0 decode OFFSET [--out PATH]` | Decode one block into a **new** output file |
@@ -151,6 +153,24 @@ Y in `--at` selects the wall probe slice. The floor and ceiling are selected acr
 the height interval, not necessarily below/above that Y. Original coordinate
 quantization, surface exclusions and wall pushes are not implemented. See
 [simulation boundaries and reference-validation gate](docs/simulation.md).
+
+Trace tools work without a ROM. This checked-in example is **authored synthetic
+data**, not an original-game capture:
+
+```sh
+cargo run -p sm64x -- trace validate docs/examples/authored-trace.json
+cargo run -p sm64x -- trace compare \
+  docs/examples/authored-trace.json docs/examples/authored-trace.json --json
+
+# For future private captures; exits nonzero on divergence or invalid input.
+# cargo run -p sm64x -- trace compare traces/reference.json traces/native.json
+# Add --absolute-tolerance 0.001 only when intentionally relaxing float equality.
+```
+
+The library can replay inputs against a caller-supplied model; no gameplay replay
+CLI is offered until a real model exists. A trace is an observation stream, not a
+save-state or proof of capture authenticity. An original-game capture adapter and
+verified runtime field map are still needed before validating movement.
 
 ## Development
 

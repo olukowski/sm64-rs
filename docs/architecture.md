@@ -1,12 +1,15 @@
 # Architecture
 
 ```text
-sm64x                       CLI identity, extraction, course/visual metadata reports
+sm64x                       CLI identity, extraction, course/visual/probe reports,
+                            ROM-free trace validation/comparison
   ├── sm64-rom               canonical byte order, header and exact ROM identity
   ├── sm64-mio0              bounded MIO0 decoding
   ├── sm64-level             segments, level declarations, static collision,
   │                         model bindings and geometry-layout hierarchy
-  └── sm64-gfx               old Fast3D state → triangle batches and RGBA textures
+  ├── sm64-gfx               old Fast3D state → triangle batches and RGBA textures
+  └── sm64-sim               explicit-tick/input/state, diagnostic probes,
+                            versioned traces and caller-model replay
 
 sm64-viewer (Bevy)           textured static BOB terrain, diagnostic collision
                             view/edges, free camera and PNG capture
@@ -75,6 +78,9 @@ camera/audio/gameplay, skyboxes and native environment effects remain absent.
 `sm64-sim` advances only when explicitly stepped with caller-supplied raw input
 and a `TickModel`. There is no built-in movement model. Its static geometric
 queries are diagnostic primitives, not the original floor/ceiling/wall solver.
+Versioned traces compare exact float bits by default, validate protocol alignment,
+and can replay raw inputs through a caller-initialized model. CLI trace commands
+need no ROM and do not provide a fake gameplay replay model.
 State uses original units and stays independent of Bevy and viewer transforms.
 See [simulation boundaries and evidence gate](simulation.md).
 

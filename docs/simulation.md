@@ -85,6 +85,50 @@ to floats. Integers, binary facing angle, action and controller bits compare
 exactly. Difference reports include float bits. `reference::replay` runs a
 caller-supplied model against recorded inputs; there is no built-in gameplay model.
 
+### CLI and authored example
+
+```sh
+# These commands do not open a ROM, even if SM64_ROM is set.
+cargo run -p sm64x -- trace validate docs/examples/authored-trace.json --json
+cargo run -p sm64x -- trace compare \
+  docs/examples/authored-trace.json docs/examples/authored-trace.json --json
+```
+
+[The example](examples/authored-trace.json) consists solely of invented values and
+must not be presented as an original-game trace. Trace tools open inputs read-only
+and write reports to stdout, never create/truncate an output file. JSON comparison
+reports identify the float policy, sources, lengths and first differing tick/field.
+Equality exits zero; divergence, malformed traces and incompatible protocols exit
+nonzero. Invalid traces produce diagnostics on stderr rather than a comparison
+report. Use shell redirection only into ignored local destinations for real data.
+No gameplay `replay` command is exposed while no real `TickModel` is implemented.
+
+### Capture adapter handoff
+
+A future adapter should produce the same schema, rather than force the comparator
+to infer runtime memory layout or poll timing. Record all of the following before
+claiming a first reference comparison:
+
+- Emulator/core/plugin versions, relevant settings, tool build/version and ROM
+  canonical hash in the manifest. Use `source: reference` only for real captures.
+- Reproducible scenario identity and boot/save/warp/act initialization. Real save
+  data and runtime traces stay ignored, even when the schema/example is public.
+- Measured input and post-Mario-update boundaries, including paused/lag frames;
+  do not emit a duplicate tick just because a renderer/controller poll advanced.
+- Raw buttons/sticks before processing. Keep previous input from before the first
+  recorded transition so button edges are reproducible.
+- Independently checked runtime field addresses, widths, signedness and endianness
+  for every observed state field. Do not infer correctness from a plausible value
+  at one address. Record revision/address evidence in private research logs.
+- At least two repeated captures from equivalent initialization whose observations
+  compare bit-exactly. Then independently generate a native trace for comparison.
+
+The minimal current schema will need an explicitly versioned extension for action
+timers and other state as actual models are implemented; unknown fields are
+rejected rather than silently ignored. Its SHA-256 identifies the intended ROM,
+not the authenticity of the captured state. Disclose unverified fields and do not
+fill gaps with invented constants.
+
 ## Evidence and next gate
 
 Authored tests establish infrastructure semantics and mathematical geometry only.

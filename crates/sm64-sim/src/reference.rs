@@ -182,7 +182,7 @@ impl FloatPolicy {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Difference {
     pub tick: u64,
     pub field: String,

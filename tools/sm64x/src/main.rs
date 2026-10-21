@@ -3,6 +3,7 @@
 mod collision;
 mod level;
 mod mio0;
+mod trace;
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -44,6 +45,11 @@ enum Command {
     },
     /// Probe static geometry (diagnostic, NOT original-game collision rules).
     Collision(collision::Options),
+    /// Validate/compare observation traces without a ROM or gameplay model.
+    Trace {
+        #[command(subcommand)]
+        command: trace::Command,
+    },
     /// Inspect MIO0 signature candidates or decode a block.
     Mio0 {
         #[command(subcommand)]
@@ -220,6 +226,9 @@ fn print_json(value: &impl Serialize) -> Result<()> {
 }
 
 fn run(cli: Cli) -> Result<()> {
+    if let Command::Trace { command } = cli.command {
+        return trace::run(command, cli.json);
+    }
     let Some(path) = cli.rom else {
         bail!("no ROM selected; pass --rom PATH or set SM64_ROM (no ROM is bundled or downloaded)");
     };
@@ -227,6 +236,7 @@ fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Info => info(&rom, cli.json),
         Command::Collision(options) => collision::run(&rom, options, cli.json),
+        Command::Trace { .. } => unreachable!("trace commands handled before ROM loading"),
         Command::Level { course: _, visuals } => {
             let course = sm64_level::load_bob(&rom)?;
             level::report(&course, cli.json, visuals)

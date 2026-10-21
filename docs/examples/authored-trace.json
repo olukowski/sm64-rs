@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "manifest": {
+    "rom_sha256": "17ce077343c6133f8c9f2d6d6d9a4ab62c8cd2aa57c40aea1f490b4c8bb21d91",
+    "source": "authored",
+    "scenario": "authored schema demonstration, not Mario behavior",
+    "producer": "sm64-rs documentation",
+    "version": "1",
+    "settings": "no emulator or gameplay; arbitrary synthetic observations",
+    "initialization": "all state and previous input zero; not a save-state",
+    "input_sampling": "one authored input sample per explicit transition",
+    "state_boundary": "after the authored transition"
+  },
+  "start_tick": 0,
+  "initial_state": {
+    "position": [0.0, 0.0, 0.0],
+    "velocity": [0.0, 0.0, 0.0],
+    "forward_velocity": 0.0,
+    "face_yaw": 0,
+    "action": 0
+  },
+  "previous_input": { "buttons": 0, "stick_x": 0, "stick_y": 0 },
+  "frames": [
+    {
+      "tick": 0,
+      "input": { "buttons": 1, "stick_x": 2, "stick_y": -3 },
+      "state": {
+        "position": [2.0, -3.0, 0.0],
+        "velocity": [0.0, 0.0, 0.0],
+        "forward_velocity": 0.0,
+        "face_yaw": 0,
+        "action": 1
+      }
+    },
+    {
+      "tick": 1,
+      "input": { "buttons": 1, "stick_x": 0, "stick_y": 0 },
+      "state": {
+        "position": [2.0, -3.0, 0.0],
+        "velocity": [0.0, 0.0, 0.0],
+        "forward_velocity": 0.0,
+        "face_yaw": 0,
+        "action": 1
+      }
+    }
+  ]
+}
