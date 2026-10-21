@@ -4,9 +4,10 @@ A behavior-faithful native reimplementation of **Super Mario 64** in Rust,
 using a user-supplied ROM for content. No ROMs, Nintendo code, or game assets
 are included. This is not an emulator.
 
-**Status:** the first Bevy viewer renders Bob-omb Battlefield's **static collision
-mesh** directly from your ROM. It is a diagnostic viewer, not original textured
-visuals or a playable game. ROM, MIO0 and course-format crates remain engine-free.
+**Status:** the Bevy viewer renders Bob-omb Battlefield's **textured static terrain**
+from its geometry layouts, Fast3D display lists and ROM textures. Collision remains
+available as a diagnostic view/overlay. Materials and lighting are approximate;
+this is not a full N64 renderer or playable game. All format crates are engine-free.
 
 ## Try the ROM inspector
 
@@ -29,7 +30,7 @@ Alternatively, pass `--rom "/path/to/your/rom"` before or after the command.
 An explicit path overrides `SM64_ROM`. ZIP/7z containers are not supported;
 select an already unpacked ROM.
 
-## First Bevy viewer
+## Static terrain viewer
 
 ```sh
 # Uses SM64_ROM from above; exact US revision 0 is required.
@@ -41,20 +42,36 @@ cargo run -p sm64-viewer -- --shot .cache/bob.png
 ```
 
 Controls: **RMB** look · **WASD** fly · **Q/E** down/up · **Shift** faster ·
-**R** reset overview · **Esc** exit. Diagnostic colors distinguish surface types
-and orientation; these are not Nintendo's textures/materials. The initial view
-fits the course bounds. `--area 1`, `--width` and `--height` are available.
-Screenshot parents must already exist; existing files and symlinks are refused.
+**R** reset · **C** toggle collision edges · **V** toggle textured/collision-only
+view · **Esc** exit. The initial overview fits the render geometry's bounds.
 
-Only static terrain collision is shown: no Mario, moving objects, macro/special
-objects, music, original camera, textures or display-list rendering. The parser
-records geometry-layout pointers for later work, but does not interpret them.
+```sh
+cargo run -p sm64-viewer -- --collision-overlay
+cargo run -p sm64-viewer -- --mode collision
+
+# Fixed camera in original SM64 units, not the viewer's 1:100 scale.
+cargo run -p sm64-viewer -- \
+  --camera=-8500,6500,11000 --look-at=0,1000,0 --shot .cache/bob-fixed.png
+```
+
+`--area 1`, `--width` and `--height` are available. Screenshot parents must exist;
+existing files and symlinks are refused. Fixed camera position/target must be
+provided together. Screenshots capture whichever mode/overlay the CLI selects. The window compositor
+may override requested dimensions; match captured dimensions when comparing fixed
+camera images. Fixed-resolution offscreen captures are not implemented.
+
+This is static course geometry, not spawned objects: no Mario, enemies, animated
+platforms, macro/special objects, audio, original camera or gameplay. Native geometry
+callbacks, generated environment effects and skybox are omitted with diagnostics.
+Lighting, combiner effects, bilinear host filtering (without mipmaps) and render
+layers are approximations, not
+pixel-identical N64 output. The collision-only view uses invented diagnostic colors.
 
 Inspect the underlying course without opening a window:
 
 ```sh
 cargo run -p sm64x -- level bob
-cargo run -p sm64x -- level bob --json
+cargo run -p sm64x -- level bob --visuals --json
 ```
 
 ### Inspector commands
@@ -62,7 +79,7 @@ cargo run -p sm64x -- level bob --json
 | Command | Purpose |
 | --- | --- |
 | `info` | Size, source byte order, canonical SHA-1/SHA-256, exact revision recognition, N64 header |
-| `level bob` | Revision-pinned segment loads, static declarations, area/object counts and collision summary |
+| `level bob [--visuals]` | Segment loads, static declarations and collision; optionally decode geometry/display lists/textures and report metadata |
 | `mio0 list` | Find signature candidates and validate their headers |
 | `mio0 list --validate` | Additionally decode candidates to check their stream structure |
 | `mio0 decode OFFSET [--out PATH]` | Decode one block into a **new** output file |
@@ -104,13 +121,17 @@ to the source ROM.
   boot/menu behavior or a gameplay VM. Unsupported control flow fails explicitly.
 - Collision parsing stops at the triangle-stop marker; special objects and
   environment-box tails are not decoded.
-- No general asset type identification, geometry-layout/display-list rendering,
-  boot checksum verification, or gameplay implementation yet.
+- Static geometry-layout/Fast3D support targets BOB. Unsupported dynamic subtrees,
+  display-list opcodes and texture state fail explicitly rather than inventing data.
+- No general asset type identification, native boot checksum verification,
+  complete RSP/RDP emulation, skybox or gameplay implementation yet.
 
 All 79 US MIO0 outputs match an independently built established decoder
 byte-for-byte ([verification](docs/research/mio0-verification.md)). The course
-parser resolves 570 vertices and 1,060 triangles for BOB area 1; the viewer was
-smoke-tested with a live screenshot. See [course notes](docs/research/bob-course.md).
+parser resolves 570 collision vertices and 1,060 collision triangles for BOB area 1.
+The textured viewer renders 1,101 visual triangles and 18 uploaded textures, with
+local GPU checks for textured/overlay/collision modes. See
+[textured milestone notes](docs/research/textured-bob.md).
 
 ## Development
 
@@ -124,8 +145,7 @@ cargo test --workspace --locked -- --ignored --nocapture
 ```
 
 Normal tests use authored synthetic data and require no ROM, window or GPU at
-runtime. The two ignored local reference tests skip with a message when
-`SM64_ROM` is unset. Building the viewer/tests still requires Bevy's platform
+runtime. Ignored ROM-dependent tests skip with a message when `SM64_ROM` is unset. Building the viewer/tests still requires Bevy's platform
 build dependencies.
 
 ### Linux build requirements
@@ -149,6 +169,8 @@ On Arch Linux, the corresponding packages are `base-devel`, `pkgconf`, `libx11`,
 - [N64 ROM format notes](docs/formats/n64-rom.md)
 - [MIO0 format notes](docs/formats/mio0.md)
 - [Segments, scripts and collision](docs/formats/level-scripts.md)
+- [Static geometry layouts](docs/formats/geometry-layouts.md)
+- [Fast3D display lists and textures](docs/formats/fast3d.md)
 - [Provenance policy](docs/adr/0001-provenance.md)
 - [Contributor/agent rules](AGENTS.md)
 

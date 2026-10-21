@@ -11,20 +11,23 @@
 - [x] Verified US revision: segment mapping and static BOB level declarations
 - [x] Static collision triangle decoding (570 vertices, 1,060 triangles on BOB)
 - [x] First Bevy collision-mesh viewer and local screenshot smoke test
-- [ ] Preserve decoded segment access/model bindings for visual asset loading
-- [ ] Decode BOB's static geometry-layout hierarchy, transforms and render layers
-- [ ] Decode the Fast3D display-list subset used by BOB (vertices, triangles, nested lists, render state)
-- [ ] Decode the texture formats/material state used by BOB and render textured static terrain
-- [ ] Add a collision overlay and repeatable fixed-camera visual checks
+- [x] Preserve decoded segment access/model bindings for visual asset loading
+- [x] Decode BOB's static geometry-layout hierarchy, transforms and render layers
+- [x] Decode the Fast3D display-list subset used by BOB (vertices, triangles, nested lists, render state)
+- [x] Decode the texture formats/material state used by BOB and render textured static terrain
+- [x] Add a collision overlay and fixed-camera visual checks (window dimensions must match for comparisons)
 
-### Recommended next stopping point
+### Reached stopping point
 
 A textured static Bob-omb Battlefield viewer, with collision visualization still
-available for alignment checks. Start from the actual geometry-layout pointer,
+available for alignment checks. Verified locally: 1,101 render triangles and 18
+uploaded textures. See [validation notes](research/textured-bob.md). Start from the actual geometry-layout pointer,
 not the collision mesh: these are different assets. Native geometry callbacks,
 animated objects and unsupported commands must be reported rather than silently
 guessed. Do not expand to every course or start gameplay in this rendering batch.
-Rendering may initially approximate N64 material effects; label those differences.
+Rendering currently approximates N64 material effects; differences are labeled.
+Future rendering work may add fixed-resolution offscreen regression captures,
+more accurate combiners/lighting/filtering, skybox and generated effects.
 
 ## M2 — Authentic Mario
 - [ ] Headless, fixed-tick Mario actions and original collision rules

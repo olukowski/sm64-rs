@@ -1,5 +1,6 @@
-//! First ROM-backed viewer: static collision only, no gameplay or textured graphics.
+//! ROM-backed static terrain viewer; not gameplay or a full RDP renderer.
 mod mesh;
+mod visual;
 
 use anyhow::{Context, Result, bail};
 use bevy::{
@@ -7,15 +8,16 @@ use bevy::{
     core_pipeline::tonemapping::{DebandDither, Tonemapping},
     input::mouse::AccumulatedMouseMotion,
     prelude::{
-        App, Assets, ButtonInput, Camera3d, ClearColor, Color, Commands, DefaultPlugins, EulerRot,
-        FontSize, KeyCode, Mesh, Mesh3d, MeshMaterial3d, MessageWriter, MouseButton, Node, On,
-        PerspectiveProjection, PluginGroup, PositionType, Projection, Quat, Query, Res, ResMut,
-        Resource, StandardMaterial, Startup, Text, TextFont, Time, Transform, Update, Vec3, Window,
-        WindowPlugin, With, default, error, info, px,
+        AlphaMode, App, Assets, ButtonInput, Camera3d, ClearColor, Color, Commands, Component,
+        DefaultPlugins, EulerRot, FontSize, Image, KeyCode, Mesh, Mesh3d, MeshMaterial3d,
+        MessageWriter, MouseButton, Node, On, PerspectiveProjection, PluginGroup, PositionType,
+        Projection, Quat, Query, Res, ResMut, Resource, StandardMaterial, Startup, Text, TextFont,
+        Time, Transform, Update, Vec3, Visibility, Window, WindowPlugin, With, default, error,
+        info, px,
     },
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
 };
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::{
     fs::OpenOptions,
     io::BufWriter,
@@ -24,13 +26,23 @@ use std::{
 
 #[derive(Parser)]
 #[command(
-    about = "ROM-backed Bob-omb Battlefield static collision viewer (not textured graphics/gameplay)"
+    about = "ROM-backed textured static Bob-omb Battlefield viewer (approximate materials, no gameplay)"
 )]
 struct Args {
     #[arg(long, env = "SM64_ROM")]
     rom: PathBuf,
     #[arg(long, default_value_t = 1)]
     area: u8,
+    #[arg(long, value_enum, default_value_t = Mode::Textured)]
+    mode: Mode,
+    /// Initially show cyan collision edges over original render geometry.
+    #[arg(long)]
+    collision_overlay: bool,
+    /// Reproducible camera position, comma-separated original SM64 units.
+    #[arg(long, value_parser = parse_position, requires = "look_at", allow_hyphen_values = true)]
+    camera: Option<Vec3>,
+    #[arg(long, value_parser = parse_position, requires = "camera", allow_hyphen_values = true)]
+    look_at: Option<Vec3>,
     /// Save a new PNG and exit after writing it. Prefer an ignored .cache/ path.
     #[arg(long)]
     shot: Option<PathBuf>,
@@ -40,12 +52,73 @@ struct Args {
     height: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum Mode {
+    Textured,
+    Collision,
+}
+
+#[derive(Component)]
+enum RenderKind {
+    Textured,
+    Collision,
+    Overlay,
+}
+#[derive(Component)]
+struct StatusLabel;
+
 #[derive(Resource)]
 struct Scene {
-    geometry: Option<Mesh>,
+    geometry: Vec<visual::VisualBatch>,
+    textures: Vec<sm64_gfx::Texture>,
+    collision: Option<Mesh>,
+    edges: Option<Mesh>,
     home: Transform,
+    center: Vec3,
+    radius: f32,
     speed: f32,
     label: String,
+    mode: Mode,
+    overlay: bool,
+}
+
+impl Scene {
+    fn status(&self) -> String {
+        format!(
+            "{}\nMode: {:?} | collision overlay: {}\nRMB look | WASD/QE fly | Shift fast | R reset | V mode | C overlay | Esc exit",
+            self.label,
+            self.mode,
+            if self.overlay { "on" } else { "off" }
+        )
+    }
+    fn visibility(&self, kind: &RenderKind) -> Visibility {
+        let visible = match kind {
+            RenderKind::Textured => self.mode == Mode::Textured,
+            RenderKind::Collision => self.mode == Mode::Collision,
+            RenderKind::Overlay => self.mode == Mode::Textured && self.overlay,
+        };
+        if visible {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        }
+    }
+}
+
+fn parse_position(value: &str) -> std::result::Result<Vec3, String> {
+    let numbers: Vec<_> = value
+        .split(',')
+        .map(str::parse::<f32>)
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|_| "expected x,y,z numbers".to_string())?;
+    if numbers.len() != 3
+        || !numbers
+            .iter()
+            .all(|n| n.is_finite() && n.abs() <= 1_000_000.)
+    {
+        return Err("expected three finite coordinates within +/-1,000,000 SM64 units".into());
+    }
+    Ok(Vec3::new(numbers[0], numbers[1], numbers[2]))
 }
 
 #[derive(Resource)]
@@ -53,6 +126,10 @@ struct Shot {
     path: Option<PathBuf>,
     frames: u32,
     requested: bool,
+}
+
+fn far_for_bounds(eye: Vec3, center: Vec3, radius: f32) -> f32 {
+    ((eye.distance(center) + radius) * 1.2 + 10.).max(1000.)
 }
 
 fn validate_shot(path: &Path, rom: &Path) -> Result<()> {
@@ -102,30 +179,58 @@ fn main() -> Result<()> {
         .as_ref()
         .with_context(|| "requested area has no static collision")?;
     let converted = mesh::convert(collision)?;
-    let center = (converted.min + converted.max) * 0.5;
-    let radius = ((converted.max - converted.min).length() * 0.5).max(1.0);
+    let visuals = visual::load(&level, area)?;
+    for diagnostic in &visuals.diagnostics {
+        eprintln!("Visual: {diagnostic}");
+    }
+    let center = (visuals.min + visuals.max) * 0.5;
+    let radius = ((visuals.max - visuals.min).length() * 0.5).max(1.0);
     // A bounding sphere fits vertically AND horizontally, even in portrait windows.
     let aspect = args.width as f32 / args.height as f32;
     let half_fov = (std::f32::consts::FRAC_PI_6.tan() * aspect.min(1.0)).atan();
     let distance = radius / half_fov.sin() * 1.15;
-    let home =
+    let home = if let (Some(eye), Some(target)) = (args.camera, args.look_at) {
+        if eye.distance_squared(target) < 0.01 {
+            bail!("camera and look-at must differ");
+        }
+        Transform::from_translation(eye * mesh::SCALE).looking_at(target * mesh::SCALE, Vec3::Y)
+    } else {
         Transform::from_translation(center + Vec3::new(1.0, 0.85, 1.2).normalize() * distance)
-            .looking_at(center, Vec3::Y);
+            .looking_at(center, Vec3::Y)
+    };
     let label = format!(
-        "{} | area {} | STATIC COLLISION ONLY\n{} triangles ({} degenerate skipped) | diagnostic colors\nScale: 1 viewer unit = 100 SM64 units (Y up)\nRMB look | WASD fly | Q/E down/up | Shift fast | R reset | Esc exit",
+        "{} | area {} | STATIC TERRAIN / APPROXIMATE MATERIALS\n{} render triangles ({} textured), {} textures, {} geo draws / {} commands\n{} collision triangles ({} degenerate skipped) | 100 SM64 units = 1 viewer unit",
         level.name,
         area.index,
+        visuals.triangles,
+        visuals.textured_triangles,
+        visuals.textures.len(),
+        visuals.draws,
+        visuals.commands,
         converted.positions.len() / 3,
         converted.skipped
     );
     eprintln!("{label}");
+    let scene = Scene {
+        geometry: visuals.batches,
+        textures: visuals.textures,
+        collision: Some(converted.into_mesh()),
+        edges: Some(visual::collision_lines(collision)?),
+        home,
+        center,
+        radius,
+        speed: radius * 0.35,
+        label,
+        mode: args.mode,
+        overlay: args.collision_overlay,
+    };
     let exit = App::new()
-        .insert_resource(Scene { geometry: Some(converted.into_mesh()), home, speed: radius * 0.35, label })
+        .insert_resource(scene)
         .insert_resource(Shot { path: args.shot, frames: 0, requested: false })
-        .insert_resource(ClearColor(Color::srgb(0.035, 0.05, 0.075)))
-        .add_plugins(DefaultPlugins.set(WindowPlugin { primary_window: Some(Window { title: "SM64 — STATIC COLLISION viewer | RMB look | WASD/QE fly | Shift | R reset | Esc".into(), resolution: (args.width, args.height).into(), ..default() }), ..default() }))
+        .insert_resource(ClearColor(Color::srgb(0.37, 0.62, 0.85)))
+        .add_plugins(DefaultPlugins.set(WindowPlugin { primary_window: Some(Window { title: "SM64 — static terrain | approximate N64 materials | V mode | C collision overlay".into(), resolution: (args.width, args.height).into(), ..default() }), ..default() }))
         .add_systems(Startup, setup)
-        .add_systems(Update, (fly, capture))
+        .add_systems(Update, (fly, toggle_view, capture))
         .run();
     if exit.is_error() {
         bail!("viewer exited with an error (see screenshot/render diagnostics)");
@@ -133,14 +238,55 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn overlay_material() -> StandardMaterial {
+    // WGPU forbids depth bias on LineList topology. Edges are offset slightly
+    // along their collision normals instead; do not apply triangle-only state.
+    StandardMaterial {
+        base_color: Color::srgba(0.05, 1.0, 1.0, 0.85),
+        unlit: true,
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        ..default()
+    }
+}
+
 fn setup(
     mut commands: Commands,
     mut scene: ResMut<Scene>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
+    use bevy::render::render_resource::Face;
+    let texture_handles: Vec<_> = scene
+        .textures
+        .drain(..)
+        .map(|texture| images.add(visual::image(texture)))
+        .collect();
+    let terrain_visibility = scene.visibility(&RenderKind::Textured);
+    for batch in scene.geometry.drain(..) {
+        commands.spawn((
+            Mesh3d(meshes.add(batch.mesh)),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::WHITE,
+                base_color_texture: batch.texture.map(|index| texture_handles[index].clone()),
+                alpha_mode: batch.alpha,
+                unlit: true,
+                cull_mode: batch.cull_back.then_some(Face::Back),
+                double_sided: !batch.cull_back,
+                depth_bias: if matches!(batch.layer, 2 | 6) {
+                    1.0
+                } else {
+                    0.0
+                },
+                ..default()
+            })),
+            RenderKind::Textured,
+            terrain_visibility,
+        ));
+    }
     commands.spawn((
-        Mesh3d(meshes.add(scene.geometry.take().expect("startup once"))),
+        Mesh3d(meshes.add(scene.collision.take().expect("startup once"))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::WHITE,
             unlit: true,
@@ -148,6 +294,14 @@ fn setup(
             double_sided: true,
             ..default()
         })),
+        RenderKind::Collision,
+        scene.visibility(&RenderKind::Collision),
+    ));
+    commands.spawn((
+        Mesh3d(meshes.add(scene.edges.take().expect("startup once"))),
+        MeshMaterial3d(materials.add(overlay_material())),
+        RenderKind::Overlay,
+        scene.visibility(&RenderKind::Overlay),
     ));
     commands.spawn((
         Camera3d::default(),
@@ -156,13 +310,14 @@ fn setup(
         Projection::Perspective(PerspectiveProjection {
             fov: std::f32::consts::FRAC_PI_3,
             near: 0.05,
-            far: 10000.,
+            far: far_for_bounds(scene.home.translation, scene.center, scene.radius),
             ..default()
         }),
         scene.home,
     ));
     commands.spawn((
-        Text::new(scene.label.clone()),
+        Text::new(scene.status()),
+        StatusLabel,
         TextFont {
             font_size: FontSize::Px(15.),
             ..default()
@@ -177,19 +332,46 @@ fn setup(
     ));
 }
 
+fn toggle_view(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut scene: ResMut<Scene>,
+    mut entities: Query<(&RenderKind, &mut Visibility)>,
+    mut labels: Query<&mut Text, With<StatusLabel>>,
+) {
+    if !keys.just_pressed(KeyCode::KeyV) && !keys.just_pressed(KeyCode::KeyC) {
+        return;
+    }
+    if keys.just_pressed(KeyCode::KeyV) {
+        scene.mode = if scene.mode == Mode::Textured {
+            Mode::Collision
+        } else {
+            Mode::Textured
+        };
+    }
+    if keys.just_pressed(KeyCode::KeyC) {
+        scene.overlay = !scene.overlay;
+    }
+    for (kind, mut visibility) in &mut entities {
+        *visibility = scene.visibility(kind);
+    }
+    for mut label in &mut labels {
+        label.0 = scene.status();
+    }
+}
+
 fn fly(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     scene: Res<Scene>,
-    mut cameras: Query<&mut Transform, With<Camera3d>>,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<Camera3d>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         exit.write(AppExit::Success);
     }
-    for mut camera in &mut cameras {
+    for (mut camera, mut projection) in &mut cameras {
         if keys.just_pressed(KeyCode::KeyR) {
             *camera = scene.home;
         }
@@ -222,6 +404,9 @@ fn fly(
         };
         camera.translation +=
             direction.normalize_or_zero() * scene.speed * boost * time.delta_secs().min(0.1);
+        if let Projection::Perspective(perspective) = &mut *projection {
+            perspective.far = far_for_bounds(camera.translation, scene.center, scene.radius);
+        }
     }
 }
 
@@ -288,6 +473,59 @@ fn capture(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fixed_camera_coordinates_reject_nonfinite_or_unbounded_input() {
+        assert_eq!(
+            parse_position("-100,200,300").unwrap(),
+            Vec3::new(-100., 200., 300.)
+        );
+        let eye = parse_position("1000000,1000000,1000000").unwrap() * mesh::SCALE;
+        assert!(far_for_bounds(eye, Vec3::ZERO, 100.) > eye.length() + 100.);
+        for value in [
+            "1,2",
+            "1,2,3,4",
+            "NaN,0,0",
+            "inf,0,0",
+            "1000001,0,0",
+            "bad,0,0",
+        ] {
+            assert!(parse_position(value).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn line_overlay_material_has_no_triangle_only_depth_bias() {
+        assert_eq!(overlay_material().depth_bias, 0.);
+    }
+
+    #[test]
+    fn modes_keep_collision_overlay_separate_from_original_render_meshes() {
+        let mut scene = Scene {
+            geometry: vec![],
+            textures: vec![],
+            collision: None,
+            edges: None,
+            home: Transform::IDENTITY,
+            center: Vec3::ZERO,
+            radius: 1.,
+            speed: 1.,
+            label: "fixture".into(),
+            mode: Mode::Textured,
+            overlay: false,
+        };
+        assert_eq!(scene.visibility(&RenderKind::Textured), Visibility::Visible);
+        assert_eq!(scene.visibility(&RenderKind::Collision), Visibility::Hidden);
+        scene.overlay = true;
+        assert_eq!(scene.visibility(&RenderKind::Overlay), Visibility::Visible);
+        scene.mode = Mode::Collision;
+        assert_eq!(scene.visibility(&RenderKind::Textured), Visibility::Hidden);
+        assert_eq!(
+            scene.visibility(&RenderKind::Collision),
+            Visibility::Visible
+        );
+        assert_eq!(scene.visibility(&RenderKind::Overlay), Visibility::Hidden);
+    }
 
     #[test]
     fn screenshot_paths_never_accept_existing_files_or_rom() {

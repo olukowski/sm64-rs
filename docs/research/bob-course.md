@@ -32,10 +32,11 @@ cargo test -p sm64-level -- --ignored --nocapture
 Static declarations are not live entities. Macro/special objects, native behaviors,
 moving platforms and object collision are not instantiated. The course's visible
 rendering geometry is separate from the static collision mesh. The initial Bevy
-viewer visualizes this collision mesh with diagnostic colors, not original
-textures or N64 materials.
+viewer visualized this collision mesh with diagnostic colors, not original
+textures or N64 materials. The subsequent [textured-terrain milestone](textured-bob.md)
+adds separate original render geometry/textures and keeps collision as a view/overlay.
 
-## Viewer smoke test
+## Initial collision-viewer smoke test
 
 The Bevy viewer was built and launched locally against this ROM. The rendered
 PNG shows all 1,060 nondegenerate triangles, a bounds-fitted overview and clear
