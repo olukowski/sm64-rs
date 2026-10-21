@@ -37,6 +37,9 @@ enum Command {
     Level {
         #[arg(value_parser = ["bob"])]
         course: String,
+        /// Decode static geometry/display lists/textures and report metadata (no files written).
+        #[arg(long)]
+        visuals: bool,
     },
     /// Inspect MIO0 signature candidates or decode a block.
     Mio0 {
@@ -220,9 +223,9 @@ fn run(cli: Cli) -> Result<()> {
     let rom = Rom::open(&path).with_context(|| format!("could not inspect {}", path.display()))?;
     match cli.command {
         Command::Info => info(&rom, cli.json),
-        Command::Level { course: _ } => {
+        Command::Level { course: _, visuals } => {
             let course = sm64_level::load_bob(&rom)?;
-            level::report(&course, cli.json)
+            level::report(&course, cli.json, visuals)
         }
         Command::Mio0 { command } => match command {
             Mio0Command::List {

@@ -301,6 +301,32 @@ fn early_closing_output_consumer_does_not_cause_a_panic() {
     }
 }
 
+#[test]
+#[ignore = "needs the US revision 0 ROM via SM64_ROM"]
+fn local_bob_visual_inventory_is_metadata_only() {
+    let Some(path) = std::env::var_os("SM64_ROM") else {
+        eprintln!("skipped: set SM64_ROM to a user-supplied US revision 0 ROM");
+        return;
+    };
+    let value = json(
+        bare_command()
+            .env("SM64_ROM", path)
+            .args(["level", "bob", "--visuals", "--json"])
+            .output()
+            .unwrap(),
+    );
+    let visuals = &value["areas"][0]["visuals"];
+    assert_eq!(visuals["draws"].as_array().unwrap().len(), 6);
+    assert!(visuals["triangles"].as_u64().unwrap() > 0);
+    assert!(visuals["textured_triangles"].as_u64().unwrap() > 0);
+    assert!(visuals["texture_bindings"].as_u64().unwrap() > 0);
+    assert!(value.get("segment_data").is_none());
+    let output = serde_json::to_string(&value).unwrap();
+    for private_field in ["rgba8", "position", "normal", "uv", "color"] {
+        assert!(!output.contains(&format!("\"{private_field}\":")));
+    }
+}
+
 // A local ROM is optional and is never a fixture or a CI prerequisite.
 #[test]
 #[ignore = "needs a user-supplied US revision 0 ROM via SM64_ROM"]

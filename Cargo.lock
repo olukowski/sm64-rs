@@ -4226,6 +4226,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sm64-gfx"
+version = "0.1.0"
+dependencies = [
+ "sm64-level",
+ "sm64-rom",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "sm64-level"
 version = "0.1.0"
 dependencies = [
@@ -4258,6 +4267,7 @@ dependencies = [
  "bevy",
  "clap",
  "image",
+ "sm64-gfx",
  "sm64-level",
  "sm64-rom",
 ]
@@ -4270,6 +4280,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "sm64-gfx",
  "sm64-level",
  "sm64-mio0",
  "sm64-rom",

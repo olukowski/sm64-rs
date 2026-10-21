@@ -12,6 +12,7 @@ bevy.workspace = true
 clap.workspace = true
 sm64-rom.workspace = true
 sm64-level.workspace = true
+sm64-gfx.workspace = true
 
 [lints]
 workspace = true
