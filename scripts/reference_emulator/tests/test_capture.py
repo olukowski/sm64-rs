@@ -181,7 +181,7 @@ class CaptureTests(unittest.TestCase):
                                   state_address=0x8033B170, record_from_poll=3, updates=2,
                                   max_vis=20, timeout=10, screenshot=False, export_trace=False,
                                   input_policy=None, policy_hold=1,
-                                  observe_floor=True, floor_max_calls=100000)
+                                  observe_floor=True, observe_floor_lists=False, floor_max_calls=100000)
         with patch.object(capture, "checked_manifest", return_value=manifest), \
              patch.object(capture, "rom_bytes", return_value=b""), \
              patch.object(capture.resource, "setrlimit"), \
@@ -224,6 +224,7 @@ class CaptureTests(unittest.TestCase):
                 "--out", str(self.root / "new")]
         gated = ["--profile", "us0-action", "--record-from-poll", "1", "--observe-floor"]
         cases = [(["--observe-floor"], "US0 action profile"),
+                 (["--observe-floor-lists"], "requires observe-floor"),
                  (["--profile", "us0-action", "--observe-floor"], "positive recording gate"),
                  (["--floor-max-calls", "2"], "requires observe-floor"),
                  (gated + ["--floor-max-calls", "0"], "1..100000"),

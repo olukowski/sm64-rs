@@ -124,6 +124,42 @@ collision resolution or capture authentication. Normal tests use invented planes
 and coordinates and require no ROM. They cover truncation, signed zero,
 non-reassociation, invalid input and explicit overflow/unsupported errors.
 
+## Optional floor-list memory snapshots
+
+`--observe-floor-lists` additionally requires `--observe-floor`. At **every**
+recorded natural floor entry and return it rereads all category-zero embedded
+heads in both partitions, follows their `next` chains and records declared surface
+metadata. Each call references its before/after snapshot IDs in a separate private
+`floor-lists.json`. Identical snapshot storage is deduplicated by SHA-256; memory
+reads are never cached between boundaries. Trace v1 is unchanged.
+
+Metadata provenance (declarations only, not implementation bodies):
+
+- The pinned STROOP map above labels `gStaticSurfacePartition` at `0x8038be98`
+  and `gDynamicSurfacePartition` at `0x8038d698`.
+- Pinned `include/types.h` declares `SurfaceNode` as next/surface pointers,
+  `SpatialPartitionCell` as three embedded nodes, and floors as category zero.
+  With N64 32-bit pointers this gives 8-byte nodes, 24-byte cells and two
+  16×16 partitions. The map's address gap independently agrees with `0x1800` bytes.
+- [Pinned surface-load declarations](https://github.com/n64decomp/sm64/blob/9921382a68bb0c865e5e45eb594d9c64db59b1af/src/engine/surface_load.h)
+  declare partition dimensions and the 8192/1024 boundary/cell constants. These
+  declarations do **not** prove coordinate conversion or index-axis orientation.
+
+Both embedded-head words are retained without interpreting the head's surface
+word as a live pointer. Following `next` is a provisional memory-layout walk,
+**not observed resolver execution order**, eligibility, precedence or tie rules.
+Heads are indexed by declaration outer/inner indices, not labelled X/Z.
+Surface records also retain force, raw flags/room/lower-Y bits, upper Y and object
+pointer bits; these are observations, not implemented surface behavior.
+
+Pointers are aligned and bounded to 4 MiB RDRAM; null node surfaces and cycles
+fail. Tooling limits are 10,000 distinct nodes and 100,000 followed links per
+snapshot, 128 million memory reads per run, 1,024 distinct stored snapshots and
+32 MiB compact snapshot data.
+Exhaustion aborts the capture, never samples or silently truncates it. Normal
+synthetic tests cover shared tails, pointer rejection, cycles, fresh reads,
+storage deduplication, before/after binding and every budget without a ROM.
+
 ## Remaining collision questions
 
 The observer does not establish coordinate quantization, floor classification,

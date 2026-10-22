@@ -29,11 +29,12 @@ def _float(bits: int) -> float:
 
 
 class FloorProbe:
-    def __init__(self, core, max_calls=100000):
+    def __init__(self, core, max_calls=100000, *, lists=None):
         if type(max_calls) is not int or not 1 <= max_calls <= 100000:
             raise ValueError("max_calls must be an integer in 1..100000")
         self.core = core
         self.max_calls = max_calls
+        self.lists = lists
         self.calls = []
         self.pending = None
         self._entry_breakpoint = None
@@ -62,10 +63,13 @@ class FloorProbe:
             output_address = self.core.register(7) & 0xFFFFFFFF
             _ram(output_address, 4, "output pointer")
             context = copy.deepcopy(context_factory())
+            list_snapshot = self.lists.snapshot() if self.lists is not None else None
             breakpoint = self.core.breakpoint(return_pc)
             self.pending = dict(context_before=context, input_bits=bits,
                                 input_values=values, output_address=output_address,
                                 return_pc=return_pc, breakpoint=breakpoint)
+            if self.lists is not None:
+                self.pending["list_snapshot_before"] = list_snapshot
             return True
         if self.pending is None or pc != self.pending["return_pc"]:
             return False
@@ -89,6 +93,8 @@ class FloorProbe:
         record = {key: value for key, value in pending.items() if key != "breakpoint"}
         record.update(context_after=copy.deepcopy(context_factory()),
                       surface=surface, height_bits=height_bits, height=height)
+        if self.lists is not None:
+            record["list_snapshot_after"] = self.lists.snapshot()
         self.calls.append(record)
         self.pending = None
         return True

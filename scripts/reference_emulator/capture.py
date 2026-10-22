@@ -22,7 +22,7 @@ import sys
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.reference_emulator import core as api
-from scripts.reference_emulator import bob_route, floor_probe, setup, trace_export
+from scripts.reference_emulator import bob_route, floor_lists, floor_probe, setup, trace_export
 
 US_SHA256 = "17ce077343c6133f8c9f2d6d6d9a4ab62c8cd2aa57c40aea1f490b4c8bb21d91"
 MAX_ROM = 64 * 1024 * 1024
@@ -216,7 +216,8 @@ def worker(args):
     policy = bob_route.BobRoute(args.policy_hold) if args.input_policy else None
     artifacts = manifest["artifacts"]
     core = api.Core(*(Path(artifacts[name]["path"]) for name in ("core", "rsp", "input", "video")))
-    observer = floor_probe.FloorProbe(core, args.floor_max_calls) if args.observe_floor else None
+    lists = floor_lists.FloorLists(core) if args.observe_floor_lists else None
+    observer = floor_probe.FloorProbe(core, args.floor_max_calls, lists=lists) if args.observe_floor else None
     output = args.out
     data = output / "data"
     data.mkdir()
@@ -348,6 +349,12 @@ def worker(args):
         floor_report = observer.report()
         floor_report.update(rom_sha256=US_SHA256, emulator=manifest,
                             record_from_poll=args.record_from_poll)
+        if lists is not None:
+            list_report = lists.report()
+            list_report.update(rom_sha256=US_SHA256, emulator=manifest,
+                               record_from_poll=args.record_from_poll)
+            write_new(output / "floor-lists.json", list_report)
+            floor_report["list_report"] = "floor-lists.json"
         write_new(output / "floor-queries.json", floor_report)
         report["floor_probe"] = {"file": "floor-queries.json", "calls": len(observer.calls)}
     write_new(output / "probe.json", report)
@@ -391,6 +398,8 @@ def main():
                         help="record exploratory US0 find_floor calls separately during a post-boot action capture")
     parser.add_argument("--floor-max-calls", type=int, default=100000,
                         help="fail, rather than sample, beyond this many floor calls (1..100000)")
+    parser.add_argument("--observe-floor-lists", action="store_true",
+                        help="snapshot all static/dynamic floor-head next chains at every floor entry/return")
     parser.add_argument("--max-vis", type=int, default=4000)
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--export-trace", action="store_true", help="export Trace v1 only for the checked US0 action profile")
@@ -406,6 +415,8 @@ def main():
             if args.entry is not None or args.state_address is not None:
                 raise ValueError("profile cannot be combined with custom entry/state addresses")
             args.entry, args.state_address = 0x80254830, 0x8033B170
+        if args.observe_floor_lists and not args.observe_floor:
+            raise ValueError("observe-floor-lists requires observe-floor")
         if args.observe_floor:
             if (args.entry, args.state_address) != (0x80254830, 0x8033B170) or not args.record_from_poll:
                 raise ValueError("floor observation requires the US0 action profile and a positive recording gate")
@@ -459,6 +470,8 @@ def main():
                    "--record-from-poll", str(args.record_from_poll)]
         if args.observe_floor:
             command += ["--observe-floor", "--floor-max-calls", str(args.floor_max_calls)]
+        if args.observe_floor_lists:
+            command += ["--observe-floor-lists"]
         if args.input_policy:
             command += ["--input-policy", args.input_policy, "--policy-hold", str(args.policy_hold)]
         if args.export_trace:
