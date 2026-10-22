@@ -151,6 +151,15 @@ native-code conclusion is claimed, and the ISA header was not misrepresented to
 bypass that limitation. Address names/layouts above are documented metadata with
 runtime consistency checks, not a decompiler-derived implementation.
 
+## Exploratory floor queries
+
+`--observe-floor` adds a separate, read-only US0 `find_floor` call observer to a
+post-boot action capture. It requires the checked action profile and a positive
+recording gate; it does not change the action trace schema or promote diagnostic
+geometry into original collision. See [boundary, ABI provenance and remaining
+questions](research/floor-queries.md). Floor reports stay private and are not
+accepted as Mario update traces.
+
 ## Tests and next boundary
 
 ```sh

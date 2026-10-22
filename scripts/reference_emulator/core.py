@@ -168,6 +168,19 @@ class Core:
             raise RuntimeError("CPU registers unavailable")
         return C.cast(pointer, C.POINTER(C.c_uint64))[index]
 
+    def fpr_bits(self, index: int) -> int:
+        """Read raw single-precision bits through the public float** view."""
+        if type(index) is not int or not 0 <= index < 32:
+            raise ValueError("FPR index must be an integer in 0..31")
+        pointer = self.lib.DebugGetCPUDataPtr(7)  # M64P_CPU_REG_COP1_SIMPLE_PTR
+        if not pointer:
+            raise RuntimeError("CPU floating-point registers unavailable")
+        registers = C.cast(pointer, C.POINTER(C.POINTER(C.c_float)))
+        element = registers[index]
+        if not element:
+            raise RuntimeError(f"CPU floating-point register {index} unavailable")
+        return int(C.cast(element, C.POINTER(C.c_uint32))[0])
+
     def pc(self) -> int:
         pointer = self.lib.DebugGetCPUDataPtr(1)
         if not pointer:

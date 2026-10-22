@@ -22,7 +22,7 @@ import sys
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.reference_emulator import core as api
-from scripts.reference_emulator import bob_route, setup, trace_export
+from scripts.reference_emulator import bob_route, floor_probe, setup, trace_export
 
 US_SHA256 = "17ce077343c6133f8c9f2d6d6d9a4ab62c8cd2aa57c40aea1f490b4c8bb21d91"
 MAX_ROM = 64 * 1024 * 1024
@@ -216,6 +216,7 @@ def worker(args):
     policy = bob_route.BobRoute(args.policy_hold) if args.input_policy else None
     artifacts = manifest["artifacts"]
     core = api.Core(*(Path(artifacts[name]["path"]) for name in ("core", "rsp", "input", "video")))
+    observer = floor_probe.FloorProbe(core, args.floor_max_calls) if args.observe_floor else None
     output = args.out
     data = output / "data"
     data.mkdir()
@@ -239,6 +240,8 @@ def worker(args):
         print("debugger initialized", file=sys.stderr, flush=True)
         if args.entry is not None:
             entry_breakpoint = core.breakpoint(args.entry)
+        if observer is not None:
+            observer.install()
         core.resume()
 
     def poll(index):
@@ -257,8 +260,22 @@ def worker(args):
     def extra(pointer):
         return diagnostics(core, pointer)
 
+    def floor_context():
+        return {"global_timer": core.u32(0x8032D5D4),
+                "level_num": core.i16(0x8032DDF8), "area_index": core.i16(0x8033BACA),
+                "act_num": core.i16(0x8033BAC8), "controller_polls": counts["controller_polls"],
+                "vi": counts["vi"], "action_entries": counts["entries"],
+                "inside_action": pending is not None}
+
     def update(pc):
         nonlocal pending
+        if observer is not None and observer.handle(
+                pc, floor_context, enabled=counts["controller_polls"] >= args.record_from_poll):
+            # A tail caller could share the action's return PC. Observe both
+            # boundaries in that case instead of dropping the outer return.
+            if pc != args.entry and not (pending is not None and pc == pending["return_pc"]):
+                core.resume()
+                return
         if pc == args.entry:
             if counts["controller_polls"] < args.record_from_poll:
                 core.resume()
@@ -327,6 +344,12 @@ def worker(args):
         "warnings": logs,
         "limitations": "Rice graphics, discarded audio output and RSP-HLE; entry/field interpretations require corroboration. Controller polls and VIs are not assumed to be game ticks. No memory writes, cheats, save-state loads or ROM patches used.",
     }
+    if observer is not None:
+        floor_report = observer.report()
+        floor_report.update(rom_sha256=US_SHA256, emulator=manifest,
+                            record_from_poll=args.record_from_poll)
+        write_new(output / "floor-queries.json", floor_report)
+        report["floor_probe"] = {"file": "floor-queries.json", "calls": len(observer.calls)}
     write_new(output / "probe.json", report)
     if args.entry is not None and counts["returns"] != args.updates:
         raise ValueError(f"only {counts['returns']} of {args.updates} requested boundaries reached; inspect probe.json")
@@ -364,6 +387,10 @@ def main():
     parser.add_argument("--updates", type=int, default=120)
     parser.add_argument("--record-from-poll", type=int, default=0,
                         help="record action calls only once the controller-poll count reaches this value; boot inputs still run")
+    parser.add_argument("--observe-floor", action="store_true",
+                        help="record exploratory US0 find_floor calls separately during a post-boot action capture")
+    parser.add_argument("--floor-max-calls", type=int, default=100000,
+                        help="fail, rather than sample, beyond this many floor calls (1..100000)")
     parser.add_argument("--max-vis", type=int, default=4000)
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--export-trace", action="store_true", help="export Trace v1 only for the checked US0 action profile")
@@ -379,6 +406,13 @@ def main():
             if args.entry is not None or args.state_address is not None:
                 raise ValueError("profile cannot be combined with custom entry/state addresses")
             args.entry, args.state_address = 0x80254830, 0x8033B170
+        if args.observe_floor:
+            if (args.entry, args.state_address) != (0x80254830, 0x8033B170) or not args.record_from_poll:
+                raise ValueError("floor observation requires the US0 action profile and a positive recording gate")
+            if not 1 <= args.floor_max_calls <= 100000:
+                raise ValueError("floor-max-calls must be in 1..100000")
+        elif args.floor_max_calls != 100000:
+            raise ValueError("floor-max-calls requires observe-floor")
         if args.input_policy:
             if (args.entry, args.state_address) != (0x80254830, 0x8033B170) or args.schedule is None:
                 raise ValueError("BOB input policy requires the US0 action profile and authored boot schedule")
@@ -423,6 +457,8 @@ def main():
                    "--rom", str(args.rom), "--out", str(args.out), "--updates", str(args.updates),
                    "--max-vis", str(args.max_vis), "--timeout", str(args.timeout),
                    "--record-from-poll", str(args.record_from_poll)]
+        if args.observe_floor:
+            command += ["--observe-floor", "--floor-max-calls", str(args.floor_max_calls)]
         if args.input_policy:
             command += ["--input-policy", args.input_policy, "--policy-hold", str(args.policy_hold)]
         if args.export_trace:

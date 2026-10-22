@@ -1,6 +1,7 @@
 """Authored, ROM-/GPU-/emulator-free capture-tool tests."""
 import argparse
 import contextlib
+import ctypes as C
 import copy
 import hashlib
 import io
@@ -153,7 +154,7 @@ class CaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "state pointer"):
             capture.diagnostics(memory, 0)
 
-    def test_recording_gate_keeps_boot_input_but_excludes_earlier_calls(self):
+    def test_recording_gate_and_floor_shared_return_keep_outer_action_pairing(self):
         instance = Mock()
         callbacks = {}
         def bind(initialize, update, vi, poll):
@@ -171,15 +172,21 @@ class CaptureTests(unittest.TestCase):
         instance.execute.side_effect = execute
         manifest = dict(artifacts={name: dict(path="unused") for name in ("core", "rsp", "input", "video")},
                         data_files={})
+        observer = Mock()
+        observer.calls = []
+        observer.handle.side_effect = lambda pc, *args, **kwargs: pc == 0x80240000
+        observer.report.return_value = {"calls": []}
         args = argparse.Namespace(out=self.root, manifest=self.root / "unused.json",
                                   rom=self.root / "unused.rom", schedule=None, entry=0x80254830,
                                   state_address=0x8033B170, record_from_poll=3, updates=2,
                                   max_vis=20, timeout=10, screenshot=False, export_trace=False,
-                                  input_policy=None, policy_hold=1)
+                                  input_policy=None, policy_hold=1,
+                                  observe_floor=True, floor_max_calls=100000)
         with patch.object(capture, "checked_manifest", return_value=manifest), \
              patch.object(capture, "rom_bytes", return_value=b""), \
              patch.object(capture.resource, "setrlimit"), \
              patch.object(capture.api, "Core", return_value=instance), \
+             patch.object(capture.floor_probe, "FloorProbe", return_value=observer), \
              patch.object(capture, "state", return_value={"synthetic": True}), \
              patch.object(capture, "diagnostics", return_value={"synthetic": True}), \
              patch.object(capture, "controller", return_value=dict(buttons=0, stick_x=0, stick_y=0)):
@@ -191,6 +198,9 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(instance.bridge.CaptureSetInput.call_count, 4)
         instance.stop.assert_called_once()
         instance.close.assert_called_once()
+        observer.install.assert_called_once()
+        self.assertEqual(observer.handle.call_count, 6)
+        self.assertEqual(capture.json_read(self.root / "floor-queries.json")["calls"], [])
 
     def test_input_policy_cannot_bypass_profile_or_chain_requirements(self):
         base = ["capture", "--rom", str(self.root / "absent.rom"), "--out", str(self.root / "new")]
@@ -208,6 +218,52 @@ class CaptureTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, 1)
             self.assertIn(message, error.getvalue())
         self.assertFalse((self.root / "new").exists())
+
+    def test_floor_observation_cli_guards_precede_capture(self):
+        base = ["capture", "--rom", str(self.root / "absent.rom"),
+                "--out", str(self.root / "new")]
+        gated = ["--profile", "us0-action", "--record-from-poll", "1", "--observe-floor"]
+        cases = [(["--observe-floor"], "US0 action profile"),
+                 (["--profile", "us0-action", "--observe-floor"], "positive recording gate"),
+                 (["--floor-max-calls", "2"], "requires observe-floor"),
+                 (gated + ["--floor-max-calls", "0"], "1..100000"),
+                 (gated + ["--floor-max-calls", "100001"], "1..100000")]
+        for arguments, message in cases:
+            with self.subTest(arguments=arguments):
+                error = io.StringIO()
+                with patch("sys.argv", base + arguments), contextlib.redirect_stderr(error):
+                    with self.assertRaises(SystemExit) as raised:
+                        capture.main()
+                self.assertEqual(raised.exception.code, 1)
+                self.assertIn(message, error.getvalue())
+        self.assertFalse((self.root / "new").exists())
+
+    def test_fpr_bits_reads_public_float_pointer_array_without_conversion(self):
+        storage = (C.c_uint32 * 32)()
+        pointers = (C.POINTER(C.c_float) * 32)(*[
+            C.cast(C.byref(storage, index * 4), C.POINTER(C.c_float))
+            for index in range(32)])
+        instance = core.Core.__new__(core.Core)
+        instance.lib = Mock()
+        instance.lib.DebugGetCPUDataPtr.return_value = C.cast(pointers, C.c_void_p).value
+        for index, bits in [(0, 0x80000000), (12, 0x3FC00000),
+                            (14, 0xC0200000), (31, 0x7FC01234)]:
+            storage[index] = bits
+            self.assertEqual(instance.fpr_bits(index), bits)
+        self.assertEqual(instance.lib.DebugGetCPUDataPtr.call_args.args, (7,))
+        before = bytes(storage)
+        for index in [-1, 32, True, False, 1.0, "12", None]:
+            instance.lib.DebugGetCPUDataPtr.reset_mock()
+            with self.assertRaises(ValueError):
+                instance.fpr_bits(index)
+            instance.lib.DebugGetCPUDataPtr.assert_not_called()
+        pointers[12] = C.POINTER(C.c_float)()
+        with self.assertRaisesRegex(RuntimeError, "register 12 unavailable"):
+            instance.fpr_bits(12)
+        instance.lib.DebugGetCPUDataPtr.return_value = None
+        with self.assertRaisesRegex(RuntimeError, "registers unavailable"):
+            instance.fpr_bits(0)
+        self.assertEqual(bytes(storage), before)
 
     def test_callback_errors_are_not_silently_ignored_by_ctypes(self):
         calls = []
