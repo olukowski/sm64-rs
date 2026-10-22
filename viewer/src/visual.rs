@@ -138,7 +138,7 @@ fn from_geo(
             result.min = result.min.min(min);
             result.max = result.max.max(max);
             let alpha = match draw.layer {
-                0..=3 if inherited_state => AlphaMode::Opaque,
+                0..=3 => AlphaMode::Opaque,
                 4 => AlphaMode::Mask(0.5),
                 5..=7 => AlphaMode::Blend,
                 _ => match batch.alpha {
@@ -147,10 +147,14 @@ fn from_geo(
                     N64Alpha::Blend => AlphaMode::Blend,
                 },
             };
-            if inherited_state
-                && batch.color_combiner == sm64_gfx::ColorCombiner::Decal
+            if batch.color_combiner == sm64_gfx::ColorCombiner::Decal
                 && let Some(texture) = texture
             {
+                if !matches!(alpha, AlphaMode::Opaque) {
+                    bail!(
+                        "decal RGB is supported only on opaque layers; transparent/alpha-tested decal composition is unsupported"
+                    );
+                }
                 result
                     .batches
                     .extend(decal_passes(mesh, &batch, transform, texture, draw.layer)?);
@@ -487,6 +491,64 @@ mod tests {
         };
         assert!((colors[0][0] - 0.21404114).abs() < 1e-6);
         assert_eq!(colors[0][3], 0.7);
+    }
+
+    #[test]
+    fn recognized_decal_dispatch_is_independent_of_state_inheritance() {
+        // Independently authored one-pixel texture, three vertices, and GBI mux
+        // fields. This is not a ROM display-list fixture.
+        let decal0 = 0xfc000000 | (1 << 20) | (8 << 15) | (7 << 12) | (7 << 9) | (1 << 5) | 8;
+        let decal1 = (4 << 28)
+            | (4 << 24)
+            | (7 << 21)
+            | (7 << 18)
+            | (4 << 15)
+            | (7 << 12)
+            | (4 << 9)
+            | (4 << 6)
+            | (7 << 3)
+            | 4;
+        let commands = [
+            (0xb6000000u32, 0x20000u32),
+            (0xbb000001, 0xffffffff),
+            (0xfd100000, 0x07000300),
+            (0xf5100000, 0x07000000),
+            (0xf3000000, 0x07000000),
+            (0xf5100000, 0),
+            (0xf2000000, 0),
+            (decal0, decal1),
+            (0x04200030, 0x07000200),
+            (0xbf000000, 0x00000a14),
+            (0xb8000000, 0),
+        ];
+        let mut data = vec![0; 1024];
+        for (i, (a, b)) in commands.into_iter().enumerate() {
+            data[i * 8..i * 8 + 4].copy_from_slice(&a.to_be_bytes());
+            data[i * 8 + 4..i * 8 + 8].copy_from_slice(&b.to_be_bytes());
+        }
+        for i in 0..3 {
+            data[512 + i * 16..514 + i * 16].copy_from_slice(&(i as i16 * 10).to_be_bytes());
+            data[512 + i * 16 + 12..512 + i * 16 + 16].copy_from_slice(&[100, 80, 60, 255]);
+        }
+        let mut segments = sm64_level::segments::SegmentMap::default();
+        segments.load(&data, 7, 0, 1024, false).unwrap();
+        for inherited in [false, true] {
+            let geo = sm64_level::geo::GeoScene {
+                draws: vec![sm64_level::geo::GeoDraw {
+                    display_list: 0x07000000,
+                    layer: 1,
+                    transform: Mat4::IDENTITY.to_cols_array_2d(),
+                }],
+                diagnostics: vec![],
+                commands_inspected: 0,
+            };
+            let scene = from_geo(&segments, geo, Mat4::IDENTITY, inherited).unwrap();
+            assert_eq!(scene.batches.len(), 2);
+            assert!(scene.batches[0].texture.is_none());
+            assert_eq!(scene.batches[0].alpha, AlphaMode::Opaque);
+            assert!(scene.batches[1].texture.is_some());
+            assert_eq!(scene.batches[1].alpha, AlphaMode::Blend);
+        }
     }
 
     #[test]

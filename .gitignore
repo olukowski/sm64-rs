@@ -32,6 +32,7 @@ __pycache__/
 *.m64
 *.log
 *.log.*
+.sm64-shot-*.tmp
 /core
 /core.*
 *.core

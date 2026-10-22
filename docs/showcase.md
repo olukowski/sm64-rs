@@ -15,8 +15,8 @@ cargo run -p sm64-viewer -- --rom /path/to/your/rom.z64 --showcase
 ```
 
 Or set `SM64_ROM` and omit `--rom`. The exact canonical US revision 0 is required;
-byte order is detected from content. No ROM, asset download or emulator is needed
-beyond your own legally supplied image. The ROM is opened read-only.
+byte order is detected from content. No ROM or asset is downloaded, and no emulator is needed; all game content
+comes from your own legally supplied image. The ROM is opened read-only.
 
 `--showcase` enables Mario, sky/fog, a composed home camera and hidden diagnostic
 labels. **RMB** looks, **WASD/QE** flies, **Shift** speeds up, **R** restores the
@@ -49,8 +49,12 @@ cargo run -p sm64-viewer -- --showcase --width 1001 --height 777 \
 
 Use a new PNG path each time; parents must exist. Existing files/symlinks and ROM
 aliases are refused. Readback dimensions are checked before encoding; the process
-exits only after PNG write/flush/sync, or with an error. A failed write can leave
-an incomplete new file: do not treat it as a successful capture. A 60-second
+exits only after PNG write/flush/sync and atomic no-clobber publication, or with
+an error. Encoding/I/O failures do not create an incomplete destination: a sibling
+exclusive temporary file is used, then hard-linked to the requested new path.
+The destination filesystem must support hard links. Normal error paths clean up
+the temporary; abrupt process termination may leave a sibling `.sm64-shot-*.tmp`.
+No ordinary rename or overwrite fallback is used. A 60-second
 capture timeout bounds failure. A graphics backend panic/device failure is still
 a program failure, not a successful image. Maximum target area is 16 megapixels.
 

@@ -25,7 +25,7 @@ examples. Never post raw logs or screenshots without checking their contents.
 ## Checks (no ROM required)
 
 Install stable Rust and the Linux build dependencies listed in [README.md](README.md).
-Python tooling uses Python 3's standard library only.
+Python tooling uses Python 3.11+ and its standard library only.
 
 ```sh
 cargo fmt --all --check
@@ -66,3 +66,7 @@ cargo test --workspace --locked -- --ignored --nocapture
 These tests skip when the variable is unset; normal CI never acquires a ROM or
 emulator. Keep resulting data local. Report reproducible commands, metadata and
 limitations rather than including captured game data in a contribution.
+
+The [static showcase](docs/showcase.md) can also be checked privately with a GPU.
+Its `--shot` path needs no window/display server. Keep all generated PNGs and
+logs ignored; no original-game screenshot is an authored regression fixture.

@@ -1,4 +1,5 @@
 //! ROM-backed static terrain viewer; not gameplay or a full RDP renderer.
+mod capture;
 mod mesh;
 mod skybox;
 mod visual;
@@ -29,8 +30,6 @@ use bevy::{
 };
 use clap::{Parser, ValueEnum};
 use std::{
-    fs::OpenOptions,
-    io::BufWriter,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -349,7 +348,7 @@ fn main() -> Result<()> {
     }
     let exit = app
         .add_systems(Startup, setup)
-        .add_systems(Update, (fly, toggle_view, capture))
+        .add_systems(Update, (fly, toggle_view, request_capture))
         .run();
     if exit.is_error() {
         bail!("viewer exited with an error (see screenshot/render diagnostics)");
@@ -589,7 +588,7 @@ fn fly(
     }
 }
 
-fn capture(
+fn request_capture(
     mut commands: Commands,
     mut shot: ResMut<Shot>,
     time: Res<Time>,
@@ -626,22 +625,7 @@ fn capture(
                 if image.width() != width || image.height() != height {
                     bail!("offscreen readback dimensions differ from requested {width}x{height}");
                 }
-                // create_new is atomic: never truncate a ROM, symlink, or preexisting output.
-                let file = OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&path)
-                    .with_context(|| "creating new screenshot")?;
-                let mut writer = BufWriter::new(file);
-                image
-                    .write_to(&mut writer, image::ImageFormat::Png)
-                    .with_context(|| "encoding screenshot")?;
-                use std::io::Write;
-                writer.flush().with_context(|| "flushing screenshot")?;
-                writer
-                    .get_ref()
-                    .sync_all()
-                    .with_context(|| "syncing screenshot")?;
+                capture::write_png(&path, &image)?;
                 Ok(())
             })();
             match result {

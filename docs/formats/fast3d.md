@@ -98,10 +98,11 @@ claimed.
 - `Batch::color_combiner` distinguishes a common decal RGB form from the
   default texture-times-shade approximation. Decal is recognized only when both
   encoded RGB cycles are `(TEXEL0 - SHADE) * TEXEL0_ALPHA + SHADE`; mixed/unknown
-  muxes retain an explicit fallback diagnostic. The actor viewer uses an opaque
+  muxes retain an explicit fallback diagnostic. The viewer uses an opaque
   shaded base plus an untinted alpha-blended texture overlay for this bounded
   expression, preserving cap logos/buttons/face decals. Host linear blending and
-  filtering are still approximations. Other combiner RGB uses texture times baked shade. Selected primitive
+  filtering are still approximations. Transparent/alpha-tested decal layer
+  combinations are explicitly unsupported rather than silently modulated. Other combiner RGB uses texture times baked shade. Selected primitive
   or environment alpha replaces shade alpha when selected, rather than being
   multiplied by a raw vertex-alpha byte. Arbitrary RGB mux expressions are **not**
   evaluated; every SET_COMBINE produces a deduplicated approximation diagnostic.
@@ -118,7 +119,7 @@ claimed.
 `DisplayListStream` preserves lights/materials/TMEM across independent actor roots,
 with per-root output/texture indices and explicit failure poisoning. Joint roots
 must reload vertices; cross-root vertex-cache reuse fails. The viewer respects
-opaque actor layers and converts encoded shade RGB to host linear vertex colors;
+opaque geometry layers and converts encoded shade RGB to host linear vertex colors;
 this is a presentation approximation, not a second generic light source.
 
 ## Budgets and tests

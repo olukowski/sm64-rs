@@ -33,7 +33,11 @@ more accurate combiners/lighting/filtering, skybox and generated effects.
 - [x] ROM-backed static Mario center-idle snapshot, explicit normal-cap graph profile
 - [x] ROM skybox and coherent approximate presentation lighting/fog
 - [x] Showcase camera, clean mode and fixed-resolution offscreen screenshots
-- [ ] Simple public-facing demo instructions and publication hygiene recheck
+- [x] Simple public-facing demo instructions and publication hygiene recheck
+
+The screenshot-worthy stopping point is reached: [static Mario/BOB showcase](showcase.md).
+This is not a playable slice; source publication and any public hosting of images
+remain explicit, separate decisions.
 
 ## M2 — Authentic Mario
 - [x] Engine-free explicit-tick/input/state foundation (caller-supplied model)
