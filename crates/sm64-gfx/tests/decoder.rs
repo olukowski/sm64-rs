@@ -80,6 +80,24 @@ fn texture_is_loaded_not_last_image_and_alpha_batches() {
     assert!(out.batches[0].vertices[0].uv[0].abs() < 0.0001);
 }
 #[test]
+fn selected_environment_alpha_replaces_zero_vertex_alpha() {
+    let mut d = fixture(&[
+        (0xb6000000, 0x20000),
+        (0xfb000000, 0xffffffff),
+        (0xfc000000, 5),
+        (0x04200030, 0x07000200),
+        (0xbf000000, 0x00000a14),
+        (0xb8000000, 0),
+    ]);
+    for i in 0..3 {
+        d[512 + i * 16 + 15] = 0;
+    }
+    let out = decode_display_list(&map(&d), 0x07000000).unwrap();
+    assert_eq!(out.batches[0].alpha, AlphaMode::Opaque);
+    assert!(out.batches[0].vertices.iter().all(|v| v.color[3] == 1.0));
+}
+
+#[test]
 fn malformed_references_offsets_opcodes_cycles() {
     for commands in [
         vec![(0xbf000000, 0x00000a14)],
@@ -196,4 +214,197 @@ fn texture_scale_is_applied_at_vertex_load() {
     d[768..770].copy_from_slice(&[0xff, 0xff]);
     let out = decode_display_list(&map(&d), 0x07000000).unwrap();
     assert_eq!(out.batches[0].vertices[0].uv[0], 0.25);
+}
+
+fn write_commands(data: &mut [u8], offset: usize, commands: &[(u32, u32)]) {
+    for (chunk, (a, b)) in data[offset..]
+        .as_chunks_mut::<8>()
+        .0
+        .iter_mut()
+        .zip(commands)
+    {
+        chunk[..4].copy_from_slice(&a.to_be_bytes());
+        chunk[4..].copy_from_slice(&b.to_be_bytes());
+    }
+}
+
+#[test]
+fn stream_inherits_lights_tmem_tiles_and_geometry_but_not_output_indices() {
+    let mut d = fixture(&[
+        (0xbc000002, 0x80000040),
+        (0x03860010, 0x07000320),
+        (0x03880010, 0x07000330),
+        (0xb6000000, 0x2000), // no back culling, lighting remains enabled
+        (0xbb000001, 0x80008000),
+        (0x04200030, 0x07000200),
+        (0xfd100000, 0x07000300),
+        (0xf5100000, 0x07000000),
+        (0xf3000000, 0x07000000),
+        (0xf5100000, 0),
+        (0xf2000000, 0),
+        (0xbf000000, 0x00000a14),
+        (0xfd100000, 0x07000310),
+        (0xf3000000, 0x07000000),
+        (0xbf000000, 0x00000a14),
+        (0xb8000000, 0),
+    ]);
+    write_commands(
+        &mut d,
+        256,
+        &[
+            (0x04200030, 0x07000200),
+            (0xbf000000, 0x00000a14),
+            (0xb8000000, 0),
+        ],
+    );
+    for i in 0..3 {
+        d[524 + i * 16..528 + i * 16].copy_from_slice(&[0, 0, 127, 255]);
+    }
+    d[768..770].copy_from_slice(&[0xf8, 1]); // red opaque
+    d[784..786].copy_from_slice(&[0x07, 0xc0]); // green transparent
+    d[800..803].copy_from_slice(&[128, 0, 0]);
+    d[808..811].copy_from_slice(&[0, 0, 127]);
+    d[816..819].copy_from_slice(&[32, 16, 8]);
+    let segments = map(&d);
+    let mut stream = sm64_gfx::DisplayListStream::new(&segments);
+    let first = stream.decode_next(0x07000000, 100).unwrap();
+    assert_eq!(first.textures.len(), 2);
+    assert_eq!(first.batches[1].texture, Some(1));
+    for _ in 0..2 {
+        let next = stream.decode_next(0x07000100, 3).unwrap();
+        assert_eq!(next.commands_inspected, 3);
+        assert_eq!(next.batches.len(), 1);
+        assert_eq!(next.textures.len(), 1);
+        assert_eq!(next.textures[0].rgba8, [0, 255, 0, 0]);
+        let b = &next.batches[0];
+        assert_eq!(b.texture, Some(0));
+        assert_eq!(b.alpha, AlphaMode::Mask);
+        assert!(!b.cull_back);
+        assert_eq!(b.vertices[0].uv[0], 0.25);
+        assert_eq!(
+            b.vertices[0].color,
+            [160. / 255., 16. / 255., 8. / 255., 1.]
+        );
+        assert!(
+            next.diagnostics
+                .iter()
+                .any(|s| s.contains("Lighting is baked"))
+        );
+        assert!(
+            !next
+                .diagnostics
+                .iter()
+                .any(|s| s.contains("Missing inherited"))
+        );
+    }
+    let fresh = decode_display_list(&segments, 0x07000100).unwrap();
+    assert_ne!(
+        fresh.batches[0].vertices[0].color,
+        first.batches[0].vertices[0].color
+    );
+    assert_eq!(fresh.batches[0].texture, None);
+    assert!(
+        fresh
+            .diagnostics
+            .iter()
+            .any(|s| s.contains("Missing inherited"))
+    );
+}
+
+#[test]
+fn stream_clears_vertices_and_poison_prevents_partial_output_or_retry() {
+    let mut d = fixture(&[
+        (0x04200030, 0x07000200),
+        (0xbf000000, 0x00000a14),
+        (0xb8000000, 0),
+    ]);
+    write_commands(&mut d, 128, &[(0xbf000000, 0x00000a14), (0xb8000000, 0)]);
+    write_commands(
+        &mut d,
+        256,
+        &[
+            (0x04200030, 0x07000200),
+            (0xbf000000, 0x00000a14),
+            (0x01000000, 0), // error after emitting a triangle internally
+        ],
+    );
+    let segments = map(&d);
+    let mut stream = sm64_gfx::DisplayListStream::new(&segments);
+    stream.decode_next(0x07000000, 3).unwrap();
+    assert!(
+        stream
+            .decode_next(0x07000080, 2)
+            .unwrap_err()
+            .0
+            .contains("unloaded vertex")
+    );
+    assert!(
+        stream
+            .decode_next(0x07000000, 3)
+            .unwrap_err()
+            .0
+            .contains("poisoned")
+    );
+    let mut stream = sm64_gfx::DisplayListStream::new(&segments);
+    assert!(
+        stream
+            .decode_next(0x07000100, 3)
+            .unwrap_err()
+            .0
+            .contains("unsupported opcode")
+    );
+    assert!(
+        stream
+            .decode_next(0x07000000, 3)
+            .unwrap_err()
+            .0
+            .contains("poisoned")
+    );
+    for budget in [0, 2] {
+        let mut stream = sm64_gfx::DisplayListStream::new(&segments);
+        assert!(
+            stream
+                .decode_next(0x07000000, budget)
+                .unwrap_err()
+                .0
+                .contains("command budget")
+        );
+    }
+}
+
+#[test]
+fn stream_inherits_othermode_and_primitive_environment_alpha() {
+    for (color_op, combiner) in [(0xfa000000, 3), (0xfb000000, 5)] {
+        let mut d = fixture(&[
+            (0xb6000000, 0x20000),
+            (color_op, 0xffffff80),
+            (0xfc000000, combiner),
+            (0xb9000002, 1),
+            (0xb8000000, 0),
+        ]);
+        write_commands(
+            &mut d,
+            128,
+            &[
+                (0x04200030, 0x07000200),
+                (0xbf000000, 0x00000a14),
+                (0xfc000000, 4),
+                (0xbf000000, 0x00000a14),
+                (0xb8000000, 0),
+            ],
+        );
+        let segments = map(&d);
+        let mut stream = sm64_gfx::DisplayListStream::new(&segments);
+        assert!(
+            stream
+                .decode_next(0x07000000, 5)
+                .unwrap()
+                .batches
+                .is_empty()
+        );
+        let next = stream.decode_next(0x07000080, 5).unwrap();
+        assert_eq!(next.batches[0].alpha, AlphaMode::Blend);
+        assert_eq!(next.batches[0].vertices[0].color[3], 128. / 255.);
+        assert_eq!(next.batches[1].alpha, AlphaMode::Mask);
+    }
 }

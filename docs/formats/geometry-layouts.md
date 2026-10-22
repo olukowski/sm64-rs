@@ -64,6 +64,16 @@ multiply on the left. Rotation fields are signed degrees. Floating-point
 trigonometry approximates these rotations: original angle-unit conversion and
 sine-table quantization are **not** reproduced bit for bit.
 
+## Opt-in actor snapshots
+
+`inspect_posed_geo` is separate from strict terrain inspection. It requires a
+complete `JointPose`, explicit switch callback selections, a signed half-open LOD
+range test, and an allowlist of native callbacks that may be omitted. Animated
+parts consume root translation plus rotational channels in traversal order;
+missing/extra channels fail. Inactive branches do not consume channels. All
+native code remains unexecuted. See [the Mario profile and evidence](mario.md)
+for the exact supported snapshot, XYZ joint convention and limitations.
+
 ## Explicit omissions and failures
 
 Screen-area, orthographic, frustum, camera and zbuffer commands are decoded at
@@ -77,7 +87,7 @@ shadows are omitted with address-bearing diagnostics. Native function pointers
 are never resolved as segmented data or executed. Culling radii are diagnosed and
 ignored (static descendants remain, without visibility tests).
 
-The following fail explicitly rather than choosing an arbitrary visible branch
+In strict `inspect_geo`, the following fail explicitly rather than choosing an arbitrary visible branch
 or rendering an invented bind pose: range/LOD (`0d`), switch/case (`0e`), animated
 parts (`13`), billboards (`14`), held objects (`1c`), view registration/copy (`06`,
 `1b`), and node flag modification (`07`). These commands may affect transforms,

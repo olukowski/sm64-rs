@@ -78,6 +78,45 @@ pub fn convert(source: &CollisionMesh) -> Result<Converted> {
     Ok(result)
 }
 
+/// Authored showcase location on BOB's initial flat plateau. This checks static
+/// geometry for presentation only; it is NOT the original game's floor solver.
+pub fn showcase_floor(source: &CollisionMesh) -> Result<Vec3> {
+    let (x, z) = (-5500.0_f32, 5500.0_f32);
+    let floor = |x: f32, z: f32| -> Option<f32> {
+        source
+            .triangles
+            .iter()
+            .filter_map(|triangle| {
+                let [a, b, c] = triangle
+                    .indices
+                    .map(|i| source.vertices.get(usize::from(i)).copied())
+                    .map(|v| v.map(|p| p.map(f32::from)));
+                let (a, b, c) = (a?, b?, c?);
+                if a[1] != b[1] || b[1] != c[1] {
+                    return None;
+                }
+                let cross = |a: [f32; 3], b: [f32; 3], x: f32, z: f32| {
+                    (b[0] - a[0]) * (z - a[2]) - (b[2] - a[2]) * (x - a[0])
+                };
+                // Upward winding in Y-up space has negative XZ signed area.
+                if cross(a, b, c[0], c[2]) >= 0.0 {
+                    return None;
+                }
+                let signs = [cross(a, b, x, z), cross(b, c, x, z), cross(c, a, x, z)];
+                signs.iter().all(|v| *v <= 0.0).then_some(a[1])
+            })
+            .max_by(f32::total_cmp)
+    };
+    let y = floor(x, z)
+        .ok_or_else(|| anyhow::anyhow!("showcase location has no horizontal terrain"))?;
+    for (dx, dz) in [(-40., -40.), (-40., 40.), (40., -40.), (40., 40.)] {
+        if floor(x + dx, z + dz) != Some(y) {
+            bail!("Mario footprint is not on one flat plateau");
+        }
+    }
+    Ok(Vec3::new(x, y, z))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +144,39 @@ mod tests {
         assert_eq!(data.normals, vec![[0., 1., 0.]; 3]);
         assert_eq!(data.colors.len(), 3);
     }
+    #[test]
+    fn showcase_grounding_requires_a_complete_horizontal_footprint() {
+        let mut source = CollisionMesh {
+            vertices: vec![
+                [-6000, 25, 5000],
+                [-6000, 25, 6000],
+                [-5000, 25, 5000],
+                [-5000, 25, 6000],
+            ],
+            triangles: vec![
+                Triangle {
+                    indices: [0, 1, 2],
+                    surface: 0,
+                    force: None,
+                },
+                Triangle {
+                    indices: [2, 1, 3],
+                    surface: 0,
+                    force: None,
+                },
+            ],
+            consumed: 0,
+        };
+        assert_eq!(
+            showcase_floor(&source).unwrap(),
+            Vec3::new(-5500., 25., 5500.)
+        );
+        source.triangles.pop();
+        assert!(showcase_floor(&source).is_err());
+        source.vertices[0][1] = 26;
+        assert!(showcase_floor(&source).is_err());
+    }
+
     #[test]
     fn invalid_index_is_an_error() {
         let mut data = fixture();

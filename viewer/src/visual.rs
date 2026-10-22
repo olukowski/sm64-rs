@@ -6,7 +6,7 @@ use bevy::{
     asset::RenderAssetUsages,
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     mesh::PrimitiveTopology,
-    prelude::{AlphaMode, Image, Mat4, Mesh, Vec3, default},
+    prelude::{AlphaMode, Image, Mat4, Mesh, Transform, Vec3, default},
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use sm64_gfx::{AlphaMode as N64Alpha, Batch, Texture, WrapMode};
@@ -20,6 +20,7 @@ pub struct VisualBatch {
     pub alpha: AlphaMode,
     pub cull_back: bool,
     pub layer: u8,
+    pub placement: Transform,
 }
 
 pub struct VisualScene {
@@ -44,6 +45,15 @@ fn same_texture(a: &Texture, b: &Texture) -> bool {
 
 pub fn load(level: &Level, area: &Area) -> Result<VisualScene> {
     let geo = sm64_level::geo::inspect_geo(&level.segment_data, area.geometry_address)?;
+    from_geo(&level.segment_data, geo, Mat4::IDENTITY, false)
+}
+
+fn from_geo(
+    segments: &sm64_level::segments::SegmentMap,
+    geo: sm64_level::geo::GeoScene,
+    root_transform: Mat4,
+    inherited_state: bool,
+) -> Result<VisualScene> {
     let mut result = VisualScene {
         batches: Vec::new(),
         textures: Vec::new(),
@@ -57,12 +67,14 @@ pub fn load(level: &Level, area: &Area) -> Result<VisualScene> {
     };
     let mut texture_bytes = 0;
     let mut diagnostics = BTreeSet::new();
+    let mut stream = sm64_gfx::DisplayListStream::new(segments);
     for draw in geo.draws {
-        let decoded = sm64_gfx::decode_display_list_with_budget(
-            &level.segment_data,
-            draw.display_list,
-            1_000_000 - result.commands,
-        )
+        let remaining = 1_000_000 - result.commands;
+        let decoded = if inherited_state {
+            stream.decode_next(draw.display_list, remaining)
+        } else {
+            sm64_gfx::decode_display_list_with_budget(segments, draw.display_list, remaining)
+        }
         .with_context(|| {
             format!(
                 "display list 0x{:08x}, layer {}",
@@ -90,7 +102,7 @@ pub fn load(level: &Level, area: &Area) -> Result<VisualScene> {
             };
             texture_map.push(index);
         }
-        let transform = Mat4::from_cols_array_2d(&draw.transform);
+        let transform = root_transform * Mat4::from_cols_array_2d(&draw.transform);
         if !transform.is_finite() {
             bail!("nonfinite geometry transform");
         }
@@ -121,6 +133,7 @@ pub fn load(level: &Level, area: &Area) -> Result<VisualScene> {
             result.min = result.min.min(min);
             result.max = result.max.max(max);
             let alpha = match draw.layer {
+                0..=3 if inherited_state => AlphaMode::Opaque,
                 4 => AlphaMode::Mask(0.5),
                 5..=7 => AlphaMode::Blend,
                 _ => match batch.alpha {
@@ -135,6 +148,7 @@ pub fn load(level: &Level, area: &Area) -> Result<VisualScene> {
                 alpha,
                 cull_back: batch.cull_back,
                 layer: draw.layer,
+                placement: Transform::IDENTITY,
             });
         }
     }
@@ -143,6 +157,69 @@ pub fn load(level: &Level, area: &Area) -> Result<VisualScene> {
         bail!("geometry layout produced no static render triangles");
     }
     Ok(result)
+}
+
+/// Static presentation placement, not a gameplay spawn or collision response.
+pub fn load_mario(rom: &sm64_rom::Rom, floor: Vec3, yaw_degrees: f32) -> Result<VisualScene> {
+    let mario = sm64_level::actors::load_mario_idle(rom)?;
+    let mut result = from_geo(
+        &mario.segments,
+        mario.geometry,
+        Mat4::from_rotation_y(yaw_degrees.to_radians()),
+        true,
+    )?;
+    // Ground the sampled model's lowest vertex on the independently checked
+    // horizontal terrain. Do not invent runtime animation-height scaling.
+    let offset = floor * SCALE - Vec3::Y * result.min.y;
+    for batch in &mut result.batches {
+        batch.placement = Transform::from_translation(offset);
+    }
+    result.min += offset;
+    result.max += offset;
+    result.diagnostics.push(format!(
+        "Mario presentation only: center-idle animation 0x{:02x} frame {}, explicit opaque/cap-on/open-eye/fist choices; callback transforms omitted; vertex-bound grounding, not gameplay.",
+        mario.animation_id, mario.frame
+    ));
+    Ok(result)
+}
+
+impl VisualScene {
+    pub fn append(&mut self, other: VisualScene) -> Result<()> {
+        let mut map = Vec::new();
+        for texture in other.textures {
+            let index = if let Some(index) = self
+                .textures
+                .iter()
+                .position(|old| same_texture(old, &texture))
+            {
+                index
+            } else {
+                let index = self.textures.len();
+                self.textures.push(texture);
+                index
+            };
+            map.push(index);
+        }
+        if self.textures.len() > 512
+            || self.textures.iter().map(|t| t.rgba8.len()).sum::<usize>() > 128 * 1024 * 1024
+            || self.triangles + other.triangles > 1_000_000
+            || self.commands + other.commands > 1_000_000
+        {
+            bail!("combined visual scene budget exhausted");
+        }
+        for mut batch in other.batches {
+            batch.texture = batch.texture.map(|index| map[index]);
+            self.batches.push(batch);
+        }
+        self.min = self.min.min(other.min);
+        self.max = self.max.max(other.max);
+        self.triangles += other.triangles;
+        self.textured_triangles += other.textured_triangles;
+        self.draws += other.draws;
+        self.commands += other.commands;
+        self.diagnostics.extend(other.diagnostics);
+        Ok(())
+    }
 }
 
 fn convert_batch(batch: &Batch, transform: Mat4) -> Result<(Mesh, Vec3, Vec3)> {

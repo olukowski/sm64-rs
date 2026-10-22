@@ -39,12 +39,14 @@ Course inspection/viewing requires the exact canonical **US revision 0** identit
 
 Viewer controls: **RMB** look · **WASD** fly · **Q/E** down/up · **Shift** faster ·
 **R** reset · **C** collision edges · **V** textured/collision view · **Esc** exit.
-This is static geometry: no Mario, enemies, moving objects, gameplay, audio or
-original camera. Skybox and native geometry callbacks are omitted with diagnostics;
+This is static presentation: `--mario` adds a ROM-backed center-idle snapshot on
+verified flat terrain, not a controllable character. Enemies, moving objects,
+gameplay, audio and the original camera are absent. Skybox and native geometry callbacks are omitted with diagnostics;
 this is not pixel-exact N64 rendering.
 
 ```sh
 # Optional collision view or a new private screenshot (never overwrites).
+cargo run -p sm64-viewer -- --mario
 cargo run -p sm64-viewer -- --mode collision
 mkdir -p .cache
 cargo run -p sm64-viewer -- --shot .cache/bob.png
@@ -119,7 +121,8 @@ when `SM64_ROM` is unset. See [CONTRIBUTING.md](CONTRIBUTING.md) before sharing 
 - [Simulation/evidence boundaries](docs/simulation.md) · [Movement slice](docs/movement-slice.md)
 - Formats: [ROM](docs/formats/n64-rom.md), [MIO0](docs/formats/mio0.md),
   [scripts/collision](docs/formats/level-scripts.md),
-  [geometry](docs/formats/geometry-layouts.md), [Fast3D](docs/formats/fast3d.md)
+  [geometry](docs/formats/geometry-layouts.md), [Fast3D](docs/formats/fast3d.md),
+  [static Mario/animation](docs/formats/mario.md)
 - Evidence: [79 independent MIO0 matches](docs/research/mio0-verification.md),
   [BOB inspection](docs/research/bob-course.md), [textured terrain](docs/research/textured-bob.md),
   [headless foundation](docs/research/headless-foundation.md)

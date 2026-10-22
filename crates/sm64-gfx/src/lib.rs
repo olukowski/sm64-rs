@@ -3,6 +3,8 @@ use sm64_level::segments::SegmentMap;
 mod decoder;
 mod texture;
 
+pub use decoder::DisplayListStream;
+
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
 pub struct Error(pub String);

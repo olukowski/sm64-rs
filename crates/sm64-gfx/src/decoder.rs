@@ -28,6 +28,65 @@ struct TextureKey {
     generation: u64,
 }
 
+/// Sequential Fast3D roots sharing lighting and material state.
+///
+/// Vertex caches are deliberately cleared between roots: independently transformed
+/// joint draws must load their own vertices. Cross-root vertex reuse is unsupported
+/// and fails rather than applying a new joint transform to old positions.
+/// Output, texture indices, diagnostics and budgets are local to each root.
+/// Any decoding error permanently poisons the stream; partial output is never returned.
+pub struct DisplayListStream<'a> {
+    decoder: Decoder<'a>,
+    poisoned: bool,
+}
+
+impl<'a> DisplayListStream<'a> {
+    pub fn new(segments: &'a SegmentMap) -> Self {
+        Self {
+            decoder: Decoder::new(segments),
+            poisoned: false,
+        }
+    }
+
+    /// Decode one root within both the per-root and caller's remaining command limits.
+    pub fn decode_next(
+        &mut self,
+        entry: u32,
+        remaining_commands: usize,
+    ) -> Result<DisplayList, Error> {
+        if self.poisoned {
+            return Err(Error(
+                "display-list stream poisoned by an earlier error".into(),
+            ));
+        }
+        let d = &mut self.decoder;
+        d.vertices.fill(None);
+        d.textures.clear();
+        d.texture_has_alpha.clear();
+        d.texture_bytes = 0;
+        d.triangles = 0;
+        d.notices.clear();
+        d.command_limit = remaining_commands.min(MAX_COMMANDS);
+        match d.run(entry) {
+            Ok(()) => Ok(std::mem::replace(&mut d.out, empty_output())),
+            Err(error) => {
+                self.poisoned = true;
+                d.out = empty_output();
+                Err(error)
+            }
+        }
+    }
+}
+
+fn empty_output() -> DisplayList {
+    DisplayList {
+        batches: vec![],
+        textures: vec![],
+        diagnostics: vec![],
+        commands_inspected: 0,
+    }
+}
+
 struct Decoder<'a> {
     segments: &'a SegmentMap,
     out: DisplayList,
@@ -58,12 +117,7 @@ impl<'a> Decoder<'a> {
     fn new(segments: &'a SegmentMap) -> Self {
         Self {
             segments,
-            out: DisplayList {
-                batches: vec![],
-                textures: vec![],
-                diagnostics: vec![],
-                commands_inspected: 0,
-            },
+            out: empty_output(),
             vertices: [None; 16],
             geometry: 0x22004,
             tiles: [Tile::default(); 8],
@@ -223,14 +277,14 @@ impl<'a> Decoder<'a> {
             ));
         }
         let texture = self.texture()?;
-        let multiplier = match self.alpha_source {
+        // Selected primitive/environment alpha replaces SHADE alpha; it is
+        // not multiplied by the raw vertex byte (often zero on Mario limbs).
+        let vertex_alpha = |v: &CachedVertex| match self.alpha_source {
             3 => self.prim[3],
             5 => self.env[3],
-            _ => 1.,
+            _ => v.color[3],
         };
-        let mut alpha = if self.other_l & 0x4000 != 0
-            || multiplier < 1.
-            || input.iter().any(|v| v.color[3] < 1.)
+        let mut alpha = if self.other_l & 0x4000 != 0 || input.iter().any(|v| vertex_alpha(v) < 1.)
         {
             AlphaMode::Blend
         } else {
@@ -268,7 +322,7 @@ impl<'a> Decoder<'a> {
             } else {
                 [0.; 2]
             },
-            color: [v.color[0], v.color[1], v.color[2], v.color[3] * multiplier],
+            color: [v.color[0], v.color[1], v.color[2], vertex_alpha(&v)],
         });
         self.out
             .batches

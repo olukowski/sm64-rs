@@ -2,7 +2,8 @@
 
 A behavior-faithful native reimplementation of Super Mario 64 in Rust. Bevy is the
 presentation layer, not the source of gameplay physics. The current viewer shows
-textured static terrain with approximate materials and diagnostic collision views.
+textured static terrain with approximate materials and diagnostic collision views,
+plus an optional ROM-backed static Mario idle snapshot.
 A bounded headless flat-walk slice exists; the viewer is not playable and general
 movement/original collision remain unimplemented. This is not an emulator.
 

@@ -38,6 +38,9 @@ struct Args {
     /// Initially show cyan collision edges over original render geometry.
     #[arg(long)]
     collision_overlay: bool,
+    /// Add a static ROM center-idle Mario snapshot on verified flat ground (not gameplay).
+    #[arg(long)]
+    mario: bool,
     /// Reproducible camera position, comma-separated original SM64 units.
     #[arg(long, value_parser = parse_position, requires = "look_at", allow_hyphen_values = true)]
     camera: Option<Vec3>,
@@ -179,7 +182,16 @@ fn main() -> Result<()> {
         .as_ref()
         .with_context(|| "requested area has no static collision")?;
     let converted = mesh::convert(collision)?;
-    let visuals = visual::load(&level, area)?;
+    let mut visuals = visual::load(&level, area)?;
+    if args.mario {
+        let floor = mesh::showcase_floor(collision)?;
+        let mario = visual::load_mario(&rom, floor, -140.0)?;
+        eprintln!(
+            "Mario bounds (viewer units): {:?} .. {:?}",
+            mario.min, mario.max
+        );
+        visuals.append(mario)?;
+    }
     for diagnostic in &visuals.diagnostics {
         eprintln!("Visual: {diagnostic}");
     }
@@ -199,7 +211,7 @@ fn main() -> Result<()> {
             .looking_at(center, Vec3::Y)
     };
     let label = format!(
-        "{} | area {} | STATIC TERRAIN / APPROXIMATE MATERIALS\n{} render triangles ({} textured), {} textures, {} geo draws / {} commands\n{} collision triangles ({} degenerate skipped) | 100 SM64 units = 1 viewer unit",
+        "{} | area {} | STATIC PRESENTATION / APPROXIMATE MATERIALS\n{} render triangles ({} textured), {} textures, {} geo draws / {} commands\n{} collision triangles ({} degenerate skipped) | 100 SM64 units = 1 viewer unit",
         level.name,
         area.index,
         visuals.triangles,
@@ -281,6 +293,7 @@ fn setup(
                 },
                 ..default()
             })),
+            batch.placement,
             RenderKind::Textured,
             terrain_visibility,
         ));

@@ -1,5 +1,26 @@
 //! Bounded static geometry-layout traversal, not a native callback interpreter.
 use crate::{Error, segments::SegmentMap};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Animation channels in skeleton traversal order (including null-DL parts).
+#[derive(Debug, Clone, Default)]
+pub struct JointPose {
+    pub root_translation: [f32; 3],
+    /// One rotation per active animated part, including the root and null-DL parts.
+    /// Binary angles: one full turn is 65536, not 360.
+    pub rotations: Vec<[i16; 3]>,
+}
+
+/// Explicit policy for inspecting dynamic layouts without executing native code.
+#[derive(Debug, Clone, Default)]
+pub struct PoseOptions {
+    pub pose: JointPose,
+    /// Callback address -> zero-based child index; no default branch is guessed.
+    pub switch_selections: BTreeMap<u32, usize>,
+    pub render_distance: f32,
+    pub allowed_omitted_callbacks: BTreeSet<u32>,
+    pub allow_empty_held: bool,
+}
 
 type Matrix = [[f32; 4]; 4];
 const MAX_COMMANDS: usize = 100_000;
@@ -27,9 +48,18 @@ pub struct GeoScene {
 }
 
 #[derive(Clone, Copy)]
+struct NodeContext {
+    transform: Matrix,
+    active: bool,
+    selector: Option<usize>,
+}
+#[derive(Clone, Copy)]
 struct Scope {
     parent: Matrix,
-    last_node: Option<Matrix>,
+    active: bool,
+    children_seen: usize,
+    selector: Option<usize>,
+    last_node: Option<NodeContext>,
 }
 struct Call {
     next: u32,
@@ -97,6 +127,16 @@ fn rotation(degrees: [f32; 3]) -> Matrix {
     ];
     multiply(ry, multiply(rx, rz))
 }
+// Joint channels use XYZ Euler rotation, unlike static geo's ZXY nodes.
+// A column vector therefore sees Rx first: Rz * Ry * Rx.
+fn animation_rotation(angles: [i16; 3]) -> Matrix {
+    let [x, y, z] = angles.map(|v| v as f32 * (360. / 65536.));
+    multiply(
+        rotation([0., 0., z]),
+        multiply(rotation([0., y, 0.]), rotation([x, 0., 0.])),
+    )
+}
+
 fn checked_pointer(segments: &SegmentMap, address: u32, length: usize) -> Result<(), Error> {
     if address & 3 != 0 {
         return Err(fail(address, "unaligned pointer"));
@@ -108,7 +148,36 @@ fn checked_pointer(segments: &SegmentMap, address: u32, length: usize) -> Result
 /// Dynamic geometry is diagnosed, never invoked. Unknown opcodes and ambiguous
 /// switch/LOD or dynamic-transform subtrees fail rather than inventing a branch.
 pub fn inspect_geo(segments: &SegmentMap, entry: u32) -> Result<GeoScene, Error> {
+    inspect_core(segments, entry, None)
+}
+
+/// Traverse explicitly selected branches and apply a complete joint pose.
+/// Native callbacks are never executed; only allowlisted ASM callbacks may be omitted.
+/// Every active animated part consumes one rotation, including the first part,
+/// which also adds root translation. Exactly `rotations.len()` parts must be encountered.
+pub fn inspect_posed_geo(
+    segments: &SegmentMap,
+    entry: u32,
+    options: &PoseOptions,
+) -> Result<GeoScene, Error> {
+    if !options.render_distance.is_finite()
+        || options.pose.root_translation.iter().any(|v| !v.is_finite())
+    {
+        return Err(fail(
+            entry,
+            "non-finite pose root translation or render distance",
+        ));
+    }
+    inspect_core(segments, entry, Some(options))
+}
+
+fn inspect_core(
+    segments: &SegmentMap,
+    entry: u32,
+    options: Option<&PoseOptions>,
+) -> Result<GeoScene, Error> {
     checked_pointer(segments, entry, 4)?;
+    let mut joints_consumed = 0usize;
     let mut scene = GeoScene {
         draws: vec![],
         diagnostics: vec![],
@@ -117,6 +186,9 @@ pub fn inspect_geo(segments: &SegmentMap, entry: u32) -> Result<GeoScene, Error>
     let mut pc = entry;
     let mut scope = Scope {
         parent: IDENTITY,
+        active: true,
+        children_seen: 0,
+        selector: None,
         last_node: None,
     };
     let mut nodes: Vec<Scope> = vec![];
@@ -171,6 +243,11 @@ pub fn inspect_geo(segments: &SegmentMap, entry: u32) -> Result<GeoScene, Error>
         let mut local = IDENTITY;
         let mut draw = None;
         let mut node = true;
+        let mut active = scope.active
+            && scope
+                .selector
+                .is_none_or(|selected| selected == scope.children_seen);
+        let mut selector = None;
         let omission = match op {
             0x00 | 0x02 => {
                 if op == 0x02 && param > 1 {
@@ -205,6 +282,18 @@ pub fn inspect_geo(segments: &SegmentMap, entry: u32) -> Result<GeoScene, Error>
                 if op != 1 || !nodes.is_empty() {
                     return Err(fail(pc, "unmatched return or unclosed nodes at root end"));
                 }
+                validate_selection(&scope, pc)?;
+                if let Some(options) = options {
+                    let expected = options.pose.rotations.len();
+                    if joints_consumed != expected {
+                        return Err(fail(
+                            pc,
+                            format!(
+                                "pose joint count mismatch: consumed {joints_consumed}, expected {expected}"
+                            ),
+                        ));
+                    }
+                }
                 return Ok(scene);
             }
             0x04 => {
@@ -214,9 +303,17 @@ pub fn inspect_geo(segments: &SegmentMap, entry: u32) -> Result<GeoScene, Error>
                 if nodes.len() == MAX_DEPTH {
                     return Err(fail(pc, "node-depth budget exhausted"));
                 }
+                // The switch's selection belongs to the opened child scope,
+                // not to subsequent siblings after CLOSE_NODE.
+                if let Some(last) = scope.last_node.as_mut() {
+                    last.selector = None;
+                }
                 nodes.push(scope);
                 scope = Scope {
-                    parent,
+                    parent: parent.transform,
+                    active: parent.active,
+                    children_seen: 0,
+                    selector: parent.selector,
                     last_node: None,
                 };
                 node = false;
@@ -226,10 +323,73 @@ pub fn inspect_geo(segments: &SegmentMap, entry: u32) -> Result<GeoScene, Error>
                 if calls.last().is_some_and(|call| nodes.len() <= call.depth) {
                     return Err(fail(pc, "called layout closes caller's node"));
                 }
+                validate_selection(&scope, pc)?;
                 scope = nodes
                     .pop()
                     .ok_or_else(|| fail(pc, "CLOSE_NODE without OPEN_NODE"))?;
                 node = false;
+                None
+            }
+            0x0d if options.is_some() => {
+                let distance = options.unwrap().render_distance;
+                active &= half(bytes, 4) as f32 <= distance && distance < half(bytes, 6) as f32;
+                None
+            }
+            0x0e if options.is_some() => {
+                if active {
+                    let callback = word(bytes, 4);
+                    let selected = *options
+                        .unwrap()
+                        .switch_selections
+                        .get(&callback)
+                        .ok_or_else(|| {
+                            fail(
+                                pc,
+                                format!("missing switch selection for callback 0x{callback:08x}"),
+                            )
+                        })?;
+                    let declared = half(bytes, 2);
+                    if declared < 0 || (declared > 0 && selected >= declared as usize) {
+                        return Err(fail(
+                            pc,
+                            format!(
+                                "switch selection {selected} out of range for callback 0x{callback:08x}"
+                            ),
+                        ));
+                    }
+                    selector = Some(selected);
+                }
+                None
+            }
+            0x13 if options.is_some() => {
+                if active {
+                    let pose = &options.unwrap().pose;
+                    let mut offset = triple(bytes, 2);
+                    if joints_consumed == 0 {
+                        for (value, root) in offset.iter_mut().zip(pose.root_translation) {
+                            *value += root;
+                        }
+                    }
+                    let angles = pose.rotations.get(joints_consumed).ok_or_else(|| {
+                        fail(pc, "pose has too few rotations for active animated parts")
+                    })?;
+                    local = multiply(translation(offset), animation_rotation(*angles));
+                    joints_consumed += 1;
+                }
+                draw = Some(word(bytes, 8));
+                None
+            }
+            0x1c if options.is_some() => {
+                if active && !options.unwrap().allow_empty_held {
+                    return Err(fail(pc, "held object requires allow_empty_held"));
+                }
+                if active {
+                    scene.diagnostics.push(format!(
+                        "geo 0x{pc:08x}: held object callback 0x{:08x} omitted as empty node",
+                        word(bytes, 8)
+                    ));
+                }
+                active = false;
                 None
             }
             0x06 | 0x07 | 0x0d | 0x0e | 0x13 | 0x14 | 0x1b | 0x1c => {
@@ -272,6 +432,23 @@ pub fn inspect_geo(segments: &SegmentMap, entry: u32) -> Result<GeoScene, Error>
             }
             0x16 => Some("dynamic shadow omitted"),
             0x17 => Some("render objects omitted (no object graph instantiated)"),
+            0x18 if options.is_some() => {
+                if active {
+                    let callback = word(bytes, 4);
+                    if !options
+                        .unwrap()
+                        .allowed_omitted_callbacks
+                        .contains(&callback)
+                    {
+                        return Err(fail(
+                            pc,
+                            format!("native ASM callback 0x{callback:08x} is not allowlisted"),
+                        ));
+                    }
+                    scene.diagnostics.push(format!("geo 0x{pc:08x}: native ASM callback 0x{callback:08x} and generated display lists omitted; identity group retained"));
+                }
+                None
+            }
             0x18 => Some("native ASM callback and generated display lists omitted"),
             0x19 => Some("background/skybox and native background callback omitted"),
             0x1a | 0x1e | 0x1f => {
@@ -290,7 +467,9 @@ pub fn inspect_geo(segments: &SegmentMap, entry: u32) -> Result<GeoScene, Error>
             }
             _ => unreachable!("opcode validated"),
         };
-        if let Some(message) = omission {
+        if let Some(message) = omission
+            && (options.is_none() || active)
+        {
             scene.diagnostics.push(format!("geo 0x{pc:08x}: {message}"));
         }
         if optional_dl && with_dl {
@@ -301,9 +480,25 @@ pub fn inspect_geo(segments: &SegmentMap, entry: u32) -> Result<GeoScene, Error>
             if transform.iter().flatten().any(|v| !v.is_finite()) {
                 return Err(fail(pc, "non-finite transform"));
             }
-            scope.last_node = Some(transform);
-            if let Some(display_list) = draw.filter(|address| *address != 0) {
-                let layer = if optional_dl { param & 0x0f } else { param };
+            // A selected switch child must actually open its child list, even
+            // when that list is empty. Branch commands never count as children.
+            if let Some(previous) = scope.last_node
+                && previous.selector.is_some()
+            {
+                return Err(fail(pc, "switch node has no child scope"));
+            }
+            scope.children_seen += 1;
+            scope.last_node = Some(NodeContext {
+                transform,
+                active,
+                selector,
+            });
+            if let Some(display_list) = draw.filter(|address| *address != 0 && active) {
+                let layer = if optional_dl || op == 0x13 {
+                    param & 0x0f
+                } else {
+                    param
+                };
                 if layer > 7 {
                     return Err(fail(pc, "invalid render layer (expected 0..7)"));
                 }
@@ -322,9 +517,38 @@ pub fn inspect_geo(segments: &SegmentMap, entry: u32) -> Result<GeoScene, Error>
     }
 }
 
+fn validate_selection(scope: &Scope, pc: u32) -> Result<(), Error> {
+    if let Some(selected) = scope.selector
+        && selected >= scope.children_seen
+    {
+        return Err(fail(
+            pc,
+            format!(
+                "switch selection {selected} out of range: only {} children",
+                scope.children_seen
+            ),
+        ));
+    }
+    if scope.last_node.is_some_and(|node| node.selector.is_some()) {
+        return Err(fail(pc, "switch node has no child scope"));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn animated_xyz_rotation_differs_from_static_geo_zxy() {
+        let joint = animation_rotation([16384, 0, 16384]);
+        // Unit Y: X quarter-turn maps it to Z; later Z rotation leaves it there.
+        assert!(joint[1][0].abs() < 1e-5);
+        assert!(joint[1][1].abs() < 1e-5);
+        assert!((joint[1][2] - 1.0).abs() < 1e-5);
+        let static_node = rotation([90.0, 0.0, 90.0]);
+        assert!((static_node[1][0] + 1.0).abs() < 1e-5);
+    }
 
     fn inspect(bytes: &[u8]) -> Result<GeoScene, Error> {
         let mut segments = SegmentMap::default();
@@ -337,6 +561,226 @@ mod tests {
     fn near(actual: [f32; 4], expected: [f32; 4]) {
         for (a, b) in actual.into_iter().zip(expected) {
             assert!((a - b).abs() < 0.0001, "{actual:?} != {expected:?}");
+        }
+    }
+
+    fn posed(bytes: &[u8], options: &PoseOptions) -> Result<GeoScene, Error> {
+        let mut segments = SegmentMap::default();
+        segments
+            .load(bytes, 14, 0, bytes.len() as u32, false)
+            .unwrap();
+        segments.load(&[0; 8], 7, 0, 8, false).unwrap();
+        inspect_posed_geo(&segments, 0x0e000000, options)
+    }
+    fn part(x: i16, dl: bool) -> Vec<u8> {
+        let [hi, lo] = x.to_be_bytes();
+        vec![0x13, 1, hi, lo, 0, 0, 0, 0, if dl { 7 } else { 0 }, 0, 0, 0]
+    }
+    const OPEN: [u8; 4] = [4, 0, 0, 0];
+    const CLOSE: [u8; 4] = [5, 0, 0, 0];
+    const END: [u8; 4] = [1, 0, 0, 0];
+
+    #[test]
+    fn posed_null_root_binary_angles_and_exact_channels() {
+        let bytes = [
+            part(10, false),
+            OPEN.to_vec(),
+            part(2, true),
+            CLOSE.to_vec(),
+            vec![0x15, 1, 0, 0, 7, 0, 0, 0],
+            END.to_vec(),
+        ]
+        .concat();
+        let mut options = PoseOptions::default();
+        options.pose.root_translation = [3., 4., 5.];
+        options.pose.rotations = vec![[0; 3], [0, 16384, 0]];
+        let scene = posed(&bytes, &options).unwrap();
+        near(scene.draws[0].transform[3], [15., 4., 5., 1.]);
+        near(scene.draws[0].transform[0], [0., 0., -1., 0.]);
+        assert_eq!(scene.draws[1].transform, IDENTITY);
+        options.pose.rotations = vec![[0; 3], [0, 0, i16::MIN]];
+        near(
+            posed(&bytes, &options).unwrap().draws[0].transform[0],
+            [-1., 0., 0., 0.],
+        );
+        options.pose.rotations.clear();
+        assert!(
+            posed(&bytes, &options)
+                .unwrap_err()
+                .to_string()
+                .contains("too few")
+        );
+        options.pose.rotations = vec![[0; 3]; 3];
+        assert!(
+            posed(&bytes, &options)
+                .unwrap_err()
+                .to_string()
+                .contains("count mismatch")
+        );
+        options.pose.root_translation[0] = f32::NAN;
+        assert!(posed(&bytes, &options).is_err());
+        options.pose.root_translation[0] = f32::INFINITY;
+        assert!(posed(&bytes, &options).is_err());
+        assert!(posed(&END, &PoseOptions::default()).is_ok());
+        let one_part = [part(10, true), END.to_vec()].concat();
+        let mut root_options = PoseOptions::default();
+        assert!(
+            posed(&one_part, &root_options)
+                .unwrap_err()
+                .to_string()
+                .contains("too few")
+        );
+        root_options.pose.root_translation = [3., 4., 5.];
+        root_options.pose.rotations = vec![[0, 16384, 0]];
+        let root_scene = posed(&one_part, &root_options).unwrap();
+        near(root_scene.draws[0].transform[3], [13., 4., 5., 1.]);
+        near(root_scene.draws[0].transform[0], [0., 0., -1., 0.]);
+        root_options.pose.rotations.push([0; 3]);
+        assert!(
+            posed(&one_part, &root_options)
+                .unwrap_err()
+                .to_string()
+                .contains("count mismatch")
+        );
+        assert!(inspect(&bytes).is_err());
+    }
+
+    #[test]
+    fn posed_switch_zero_cases_calls_and_inactive_joints() {
+        // Two callees are direct switch children. Their branch commands are not nodes.
+        let mut bytes = vec![0x0e, 0, 0, 0, 0x80, 0, 0, 1];
+        bytes.extend(OPEN);
+        bytes.extend([2, 1, 0, 0, 14, 0, 0, 36]);
+        bytes.extend([2, 1, 0, 0, 14, 0, 0, 52]);
+        bytes.extend(CLOSE);
+        bytes.extend(END);
+        bytes.extend(part(10, true));
+        bytes.extend([3, 0, 0, 0]);
+        bytes.extend(part(20, true));
+        bytes.extend([3, 0, 0, 0]);
+        let mut options = PoseOptions::default();
+        assert!(
+            posed(&bytes, &options)
+                .unwrap_err()
+                .to_string()
+                .contains("80000001")
+        );
+        options.switch_selections.insert(0x80000001, 1);
+        options.pose.rotations = vec![[0; 3]];
+        let scene = posed(&bytes, &options).unwrap();
+        assert_eq!(scene.draws.len(), 1);
+        near(scene.draws[0].transform[3], [20., 0., 0., 1.]);
+        options.switch_selections.insert(0x80000001, 2);
+        assert!(
+            posed(&bytes, &options)
+                .unwrap_err()
+                .to_string()
+                .contains("out of range")
+        );
+        bytes[3] = 1;
+        options.switch_selections.insert(0x80000001, 1);
+        assert!(
+            posed(&bytes, &options)
+                .unwrap_err()
+                .to_string()
+                .contains("out of range")
+        );
+        bytes[3] = 0;
+        bytes[36] = 0xff; // Even unselected command lengths must be known.
+        assert!(
+            posed(&bytes, &options)
+                .unwrap_err()
+                .to_string()
+                .contains("unknown opcode")
+        );
+    }
+
+    #[test]
+    fn posed_lod_signed_half_open_and_siblings() {
+        let bytes = [
+            vec![0x0d, 0, 0, 0, 0xff, 0xf6, 0, 10],
+            OPEN.to_vec(),
+            part(5, true),
+            CLOSE.to_vec(),
+            part(9, true),
+            END.to_vec(),
+        ]
+        .concat();
+        let mut options = PoseOptions {
+            render_distance: -10.,
+            ..Default::default()
+        };
+        options.pose.rotations = vec![[0; 3]; 2];
+        assert_eq!(posed(&bytes, &options).unwrap().draws.len(), 2);
+        options.render_distance = 10.;
+        options.pose.rotations = vec![[0; 3]];
+        let scene = posed(&bytes, &options).unwrap();
+        assert_eq!(scene.draws.len(), 1);
+        near(scene.draws[0].transform[3], [9., 0., 0., 1.]);
+        options.render_distance = f32::NAN;
+        assert!(posed(&bytes, &options).is_err());
+    }
+
+    #[test]
+    fn posed_callback_allowlist_held_and_dynamic_rejection() {
+        let bytes = [
+            part(0, false),
+            vec![0x18, 0, 0, 0, 0x80, 0, 0, 2],
+            OPEN.to_vec(),
+            vec![0x15, 1, 0, 0, 7, 0, 0, 0],
+            CLOSE.to_vec(),
+            vec![0x1c, 0, 0, 0, 0, 0, 0, 0, 0x80, 0, 0, 3],
+            OPEN.to_vec(),
+            part(1, true),
+            CLOSE.to_vec(),
+            END.to_vec(),
+        ]
+        .concat();
+        let mut options = PoseOptions::default();
+        options.pose.rotations = vec![[0; 3]];
+        assert!(
+            posed(&bytes, &options)
+                .unwrap_err()
+                .to_string()
+                .contains("80000002")
+        );
+        options.allowed_omitted_callbacks.insert(0x80000002);
+        assert!(
+            posed(&bytes, &options)
+                .unwrap_err()
+                .to_string()
+                .contains("allow_empty_held")
+        );
+        options.allow_empty_held = true;
+        let scene = posed(&bytes, &options).unwrap();
+        assert_eq!(scene.draws.len(), 1);
+        assert!(scene.diagnostics.iter().any(|s| s.contains("80000002")));
+        assert!(scene.diagnostics.iter().any(|s| s.contains("80000003")));
+        for op in [0x06, 0x07, 0x14, 0x1b, 0xff] {
+            assert!(posed(&[op, 0, 0, 0, 0, 0, 0, 0], &options).is_err());
+        }
+    }
+
+    #[test]
+    fn posed_budgets_and_missing_switch_children() {
+        let options = PoseOptions::default();
+        assert!(
+            posed(&[0, 0, 0, 0, 14, 0, 0, 0], &options)
+                .unwrap_err()
+                .to_string()
+                .contains("call-depth")
+        );
+        assert!(
+            posed(&[2, 0, 0, 0, 14, 0, 0, 0], &options)
+                .unwrap_err()
+                .to_string()
+                .contains("command budget")
+        );
+        let mut options = options;
+        options.switch_selections.insert(0x80000001, 0);
+        for tail in [END.to_vec(), [OPEN, CLOSE, END].concat()] {
+            let bytes = [vec![0x0e, 0, 0, 0, 0x80, 0, 0, 1], tail].concat();
+            assert!(posed(&bytes, &options).is_err());
         }
     }
 
