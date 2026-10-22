@@ -97,10 +97,11 @@ overflow behavior, eligibility and the other rules below remain unresolved.
 
 ## Native returned-plane arithmetic component
 
-`sm64_sim::floor::FloorPlane` implements that arithmetic independently in Rust.
-It takes an **already selected** plane's coefficients; it does not normalize them,
-construct original planes from asset triangles, search cells/lists, or decide
-whether the query may stand on that plane. It is not wired into `FlatWalk`.
+`sm64_sim::floor::FloorPlane::new` and `height_at` implement that arithmetic
+independently in Rust using caller-supplied coefficients, without normalizing
+them. They neither search cells/lists nor decide whether a query may stand on a
+plane. The separate bounded vertex constructor is documented below. None of
+these components is wired into `FlatWalk`.
 
 The API rejects nonfinite coefficients, nonpositive Y coefficients, nonfinite
 results and queries outside an authored **±8192** support envelope. That bound and
@@ -118,8 +119,9 @@ cargo test -p sm64-sim --test floor_plane -- --ignored --nocapture
 # SM64_ROM must also be set; repeat with bob-floor-b.
 ```
 
-The test reads private oracle-selected plane coefficients and input/result bits;
-that is deliberately only a **plane-arithmetic comparison**, not independent
+The test reads private oracle-selected surface vertices, coefficients and
+input/result bits. It now checks both supplied and independently vertex-built
+planes. This remains a **plane-arithmetic comparison**, not independent
 collision resolution or capture authentication. Normal tests use invented planes
 and coordinates and require no ROM. They cover truncation, signed zero,
 non-reassociation, invalid input and explicit overflow/unsupported errors.
@@ -231,15 +233,63 @@ attempts exhausted first the initial 32-million and then the 128-million read
 budget and were preserved only as ignored failure diagnostics. The successful
 scope was explicitly narrowed to 51 actions; failed runs are not evidence.
 
+## Bounded native construction from vertices
+
+`FloorPlane::from_vertices` now derives coefficients from **only the ordered
+signed-integer vertices**. Oracle normals and offsets are comparison outputs,
+never constructor inputs. The fresh arithmetic model is:
+
+1. Exact integer cross determinants for edges from the first vertex; zero
+   determinants convert to **positive zero**.
+2. Separately rounded f32 squares, sum `(nx² + ny²) + nz²`, square root, reciprocal,
+   then multiplication of each cross component by that reciprocal.
+3. Separately rounded f32 products with the **first** vertex and origin offset
+   `-((nx*x0 + ny*y0) + nz*z0)`.
+
+All **621** floor-surface normal/offset coefficient sets in each repeated ramp
+snapshot match **exact bits** when built this way. Component-wise division,
+reassociated norm sums, reassociated offset sums or choosing another base vertex
+produce disagreements. An initial floating-edge-product Rust experiment matched
+567 planes but introduced negative-zero normal components in **54** cases;
+converting exact integer determinants instead reproduces every observed zero bit.
+This is bounded evidence for an arithmetic model, not a unique reconstruction of
+original instruction sequences or proof about unobserved loader paths.
+
+The authored support envelope requires every coordinate within **±8192** and
+all cyclic cross-product products/differences within **±2²⁴**, so integer
+arithmetic is exactly representable as f32 and no original overflow or inexact
+cross-product rounding is inferred. Rust i64 is only a safe host implementation
+choice, not the original width. Degenerate, vertical, downward or out-of-envelope
+triangles fail explicitly. Positive normal Y is still an API condition, not an
+inferred floor-classification threshold.
+
+```sh
+export SM64_FLOOR_LISTS="$PWD/.cache/emulator/bob-ramp-a/floor-lists.json"
+cargo test -p sm64-sim --test floor_construction -- --ignored --nocapture
+export SM64_FLOOR_QUERIES="$PWD/.cache/emulator/bob-ramp-a/floor-queries.json"
+cargo test -p sm64-sim --test floor_plane -- --ignored --nocapture
+# SM64_ROM must also be set; repeat for bob-ramp-b.
+```
+
+The composed vertex-built-plane → height path reproduces all **2,893** returned
+heights in each ramp report and all **1,171** in each earlier flat report exactly.
+Surface selection and vertex ordering still come from the oracle. No native
+cell search, triangle containment, height acceptance, tie ordering or movement
+resolution is implied. Normal ROM-free tests use invented triangles and cover
+analytical slopes, signed zero, exactness/boundary rejection and discriminating
+normalization/offset rounding witnesses.
+
 ## Remaining collision questions
 
-The observer does not establish coordinate quantization, floor classification,
-height acceptance/sentinel rules, edge inclusion, spatial partition membership,
-linked-list insertion/traversal/tie ordering, special-surface filtering, or
-static/dynamic precedence. A returned surface alone does not reveal all rejected
-candidates. Ordinary flat agreement cannot establish slope arithmetic.
+The observer does not establish selection-time coordinate quantization/overflow,
+floor classification, height acceptance/sentinel rules, edge inclusion,
+query-to-cell mapping, linked-list insertion/executed traversal/tie ordering,
+special-surface filtering or static/dynamic precedence. Agreement on returned
+planes does not establish selection: rejected candidates remain unidentified.
 
-Before implementing original floor resolution, collect repeated natural seam,
-slope and height-transition queries and independently corroborate candidate-list
-layouts/order. Keep diagnostic probe policies separate. No game/decompiler
-implementation bodies, disassembly, extracted geometry or traces belong in Git.
+Before implementing floor resolution, seek discriminating natural queries at
+cell boundaries, overlapping/absent floors and active dynamic surfaces, and
+corroborate actual candidate visits/rejections against the recorded memory lists.
+The repeated ramp/edge changes now supply a baseline, not all those rules. Keep
+diagnostic probe policies separate. No game/decompiler implementation bodies,
+disassembly, extracted geometry or traces belong in Git.

@@ -49,6 +49,7 @@ remain explicit, separate decisions.
 - [x] Short-release extension: all 1–9-tick holds independently repeated and matched through first idle
 - [x] Repeatable BOB baseline: ordinary flat lane, fixed diagonal, all 1–5-tick holds matched through first idle
 - [x] Read-only paired floor-call evidence and bounded returned-plane height arithmetic (not floor selection)
+- [x] Bounded vertex-to-plane construction: exact coefficients for 621 observed floor surfaces; composed ramp heights match (oracle-selected surfaces)
 - [x] Bounded static/dynamic floor-list memory snapshots and repeatable ramp-query inventory with no-list control (not solver traversal)
 - [ ] Corroborate floor-selection rules on seam/slope/height-transition evidence before ground-step integration
 - [ ] Expand native actions/input coverage and implement original collision resolution

@@ -61,7 +61,7 @@ fn separately_rounded_additions_are_not_reassociated() {
 
 #[test]
 #[ignore = "requires private SM64_FLOOR_QUERIES reference output and SM64_ROM; no fixtures bundled"]
-fn observed_returned_plane_heights_match_exact_bits() {
+fn observed_returned_planes_and_heights_match_exact_bits() {
     use serde_json::Value;
     use std::{fs::File, io::Read};
     if std::env::var_os("SM64_ROM").is_none() {
@@ -97,16 +97,35 @@ fn observed_returned_plane_heights_match_exact_bits() {
             std::array::from_fn(|axis| f32::from_bits(bits(&surface["normal_bits"][axis])));
         let offset = f32::from_bits(bits(&surface["origin_offset_bits"]));
         let plane = FloorPlane::new(normal, offset).unwrap();
+        let vertices = std::array::from_fn(|vertex| {
+            std::array::from_fn(|axis| {
+                i16::try_from(surface["vertices"][vertex][axis].as_i64().unwrap()).unwrap()
+            })
+        });
+        let constructed = FloorPlane::from_vertices(vertices).unwrap();
+        let (constructed_normal, constructed_offset) = constructed.coefficients();
+        assert_eq!(
+            constructed_normal.map(f32::to_bits),
+            normal.map(f32::to_bits),
+            "call {index}: constructed normal"
+        );
+        assert_eq!(
+            constructed_offset.to_bits(),
+            offset.to_bits(),
+            "call {index}: constructed origin offset"
+        );
         let x = f32::from_bits(bits(&call["input_bits"][0]));
         let z = f32::from_bits(bits(&call["input_bits"][2]));
-        assert_eq!(
-            plane.height_at(x, z).unwrap().to_bits(),
-            bits(&call["height_bits"]),
-            "call {index}"
-        );
+        for (label, candidate) in [("supplied", plane), ("constructed", constructed)] {
+            assert_eq!(
+                candidate.height_at(x, z).unwrap().to_bits(),
+                bits(&call["height_bits"]),
+                "call {index}: {label} plane height"
+            );
+        }
     }
     eprintln!(
-        "{} returned-plane heights matched exact f32 bits; plane selection and coefficients came from the oracle, NOT an independent collision resolver",
+        "{} returned-plane coefficients/heights matched exact f32 bits from supplied coefficients AND vertices; surfaces were oracle-selected, NOT an independent collision resolver",
         calls.len()
     );
 }
