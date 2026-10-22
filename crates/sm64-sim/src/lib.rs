@@ -2,6 +2,7 @@
 //! Floating-point results are not promised to be bit-exact across platforms.
 
 pub mod collision;
+pub mod floor;
 pub mod input;
 pub mod movement;
 pub mod reference;

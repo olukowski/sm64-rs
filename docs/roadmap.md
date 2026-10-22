@@ -48,6 +48,7 @@ remain explicit, separate decisions.
 - [x] First bounded native flat-walk model and exact original-versus-native comparison
 - [x] Short-release extension: all 1–9-tick holds independently repeated and matched through first idle
 - [x] Repeatable BOB baseline: ordinary flat lane, fixed diagonal, all 1–5-tick holds matched through first idle
+- [x] Read-only paired floor-call evidence and bounded returned-plane height arithmetic (not floor selection)
 - [ ] Expand native actions/input coverage and implement original collision resolution
 - [ ] Animation and camera integration
 

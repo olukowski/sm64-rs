@@ -165,6 +165,11 @@ See [setup, evidence and limitations](reference-emulator.md). This is not a full
 runtime-state map or hardware equivalence proof. The [first native slice](movement-slice.md)
 now matches a bounded flat-ground sequence against repeated reference observations;
 that result does not validate the remaining actions or original collision solver.
+The [floor-query research](research/floor-queries.md) adds paired reference calls
+and a bounded native returned-plane arithmetic component. Its plane coefficients
+and selected surface come from the caller/oracle; it is not floor search and is
+not used to resolve movement. Static/dynamic ordering, eligibility, edges and
+geometry-to-plane construction remain unimplemented.
 Do not replace missing observations with generic acceleration/gravity constants.
 Keep all game-derived captures under ignored `traces/` or `.cache/`; commit only
 capture tooling, documentation and authored synthetic tests. See

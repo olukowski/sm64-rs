@@ -95,6 +95,35 @@ bounded arithmetic inference using oracle-selected plane coefficients, **not**
 independent floor selection or a collision-equivalence result. Conversion width,
 overflow behavior, eligibility and the other rules below remain unresolved.
 
+## Native returned-plane arithmetic component
+
+`sm64_sim::floor::FloorPlane` implements that arithmetic independently in Rust.
+It takes an **already selected** plane's coefficients; it does not normalize them,
+construct original planes from asset triangles, search cells/lists, or decide
+whether the query may stand on that plane. It is not wired into `FlatWalk`.
+
+The API rejects nonfinite coefficients, nonpositive Y coefficients, nonfinite
+results and queries outside an authored **±8192** support envelope. That bound and
+positive-Y requirement are conservative API constraints, not inferred original
+world limits, overflow behavior or classification thresholds. Within that domain,
+integer conversion is only a way to express observed truncation toward zero; its
+use of Rust i32 does not establish the original conversion width.
+
+An ignored local evidence test reproduced **all 1,171 returned heights exactly**
+for each independent report, including signed zero and sloped-plane rounding:
+
+```sh
+export SM64_FLOOR_QUERIES="$PWD/.cache/emulator/bob-floor-a/floor-queries.json"
+cargo test -p sm64-sim --test floor_plane -- --ignored --nocapture
+# SM64_ROM must also be set; repeat with bob-floor-b.
+```
+
+The test reads private oracle-selected plane coefficients and input/result bits;
+that is deliberately only a **plane-arithmetic comparison**, not independent
+collision resolution or capture authentication. Normal tests use invented planes
+and coordinates and require no ROM. They cover truncation, signed zero,
+non-reassociation, invalid input and explicit overflow/unsupported errors.
+
 ## Remaining collision questions
 
 The observer does not establish coordinate quantization, floor classification,
