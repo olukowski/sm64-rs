@@ -92,9 +92,12 @@ claimed.
 - Unlit RGBA vertex colors are retained. Lighting is baked at VTX load from
   normalized object-space directional lights plus ambient; missing inherited
   light state uses a diagnosed neutral approximation. There is no camera-space
-  light transform, integer RSP quantization, or dynamic relighting.
+  light transform or integer RSP quantization. Actor streams can supply a
+  per-joint inverse-transpose normal transform for coherent approximate world-space
+  directional shading; positions/normals returned to the caller stay local.
 - Combiner RGB is approximated as texture times baked shade. Selected primitive
-  or environment alpha is included. Arbitrary RGB mux expressions are **not**
+  or environment alpha replaces shade alpha when selected, rather than being
+  multiplied by a raw vertex-alpha byte. Arbitrary RGB mux expressions are **not**
   evaluated; every SET_COMBINE produces a deduplicated approximation diagnostic.
 - Batches split on texture, back-face culling, and estimated alpha mode. Alpha
   mode uses low other-mode alpha comparison / force blending, vertex and selected
@@ -105,6 +108,12 @@ claimed.
 - Unknown opcodes, matrix commands, unsupported MOVEWORD/MOVEMEM state and
   invalid texture data fail with contextual addresses. No plausible fake assets
   or silent unknown geometry commands are emitted.
+
+`DisplayListStream` preserves lights/materials/TMEM across independent actor roots,
+with per-root output/texture indices and explicit failure poisoning. Joint roots
+must reload vertices; cross-root vertex-cache reuse fails. The viewer respects
+opaque actor layers and converts encoded shade RGB to host linear vertex colors;
+this is a presentation approximation, not a second generic light source.
 
 ## Budgets and tests
 

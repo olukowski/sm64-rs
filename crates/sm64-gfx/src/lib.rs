@@ -1,6 +1,7 @@
 //! Safe static Fast3D decoding, not an RSP/RDP emulator.
 use sm64_level::segments::SegmentMap;
 mod decoder;
+pub mod skybox;
 mod texture;
 
 pub use decoder::DisplayListStream;

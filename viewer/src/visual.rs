@@ -4,9 +4,10 @@ use std::collections::BTreeSet;
 use anyhow::{Context, Result, bail};
 use bevy::{
     asset::RenderAssetUsages,
+    color::ColorToComponents,
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     mesh::PrimitiveTopology,
-    prelude::{AlphaMode, Image, Mat4, Mesh, Transform, Vec3, default},
+    prelude::{AlphaMode, Image, Mat3, Mat4, Mesh, Transform, Vec3, default},
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use sm64_gfx::{AlphaMode as N64Alpha, Batch, Texture, WrapMode};
@@ -70,8 +71,13 @@ fn from_geo(
     let mut stream = sm64_gfx::DisplayListStream::new(segments);
     for draw in geo.draws {
         let remaining = 1_000_000 - result.commands;
+        let transform = root_transform * Mat4::from_cols_array_2d(&draw.transform);
         let decoded = if inherited_state {
-            stream.decode_next(draw.display_list, remaining)
+            stream.decode_next_with_normal_transform(
+                draw.display_list,
+                remaining,
+                Mat3::from_mat4(transform.inverse().transpose()).to_cols_array_2d(),
+            )
         } else {
             sm64_gfx::decode_display_list_with_budget(segments, draw.display_list, remaining)
         }
@@ -102,7 +108,6 @@ fn from_geo(
             };
             texture_map.push(index);
         }
-        let transform = root_transform * Mat4::from_cols_array_2d(&draw.transform);
         if !transform.is_finite() {
             bail!("nonfinite geometry transform");
         }
@@ -254,7 +259,12 @@ fn convert_batch(batch: &Batch, transform: Mat4) -> Result<(Mesh, Vec3, Vec3)> {
                 .to_array(),
         );
         uvs.push(vertex.uv);
-        colors.push(vertex.color);
+        // N64 shade/color values are encoded intensities. Convert them for
+        // the host's linear material pipeline instead of brightening midtones.
+        let [r, g, b, a] = vertex.color;
+        colors.push(
+            bevy::color::LinearRgba::from(bevy::color::Srgba::new(r, g, b, a)).to_f32_array(),
+        );
     }
     let mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -295,6 +305,50 @@ pub fn image(texture: Texture) -> Image {
         ..default()
     });
     image
+}
+
+/// Authored soft contact blob, NOT the original game's shadow generator.
+/// This is presentation-only on a separately verified horizontal plateau.
+pub fn contact_shadow(floor: Vec3) -> (Mesh, Image) {
+    let center = floor * SCALE + Vec3::Y * 0.005;
+    let mut positions = Vec::new();
+    let mut uvs = Vec::new();
+    for [x, z] in [
+        [-0.6, -0.45],
+        [-0.6, 0.45],
+        [0.6, -0.45],
+        [0.6, -0.45],
+        [-0.6, 0.45],
+        [0.6, 0.45],
+    ] {
+        positions.push((center + Vec3::new(x, 0., z)).to_array());
+        uvs.push([(x + 0.6) / 1.2, (z + 0.45) / 0.9]);
+    }
+    let mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 1., 0.]; 6])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    let mut rgba = Vec::new();
+    for y in 0..64 {
+        for x in 0..64 {
+            let r2 = ((x as f32 + 0.5) / 32. - 1.).powi(2) + ((y as f32 + 0.5) / 32. - 1.).powi(2);
+            let alpha = ((1. - r2).max(0.).powi(3) * 65.).round() as u8;
+            rgba.extend([0, 0, 0, alpha]);
+        }
+    }
+    (
+        mesh,
+        image(Texture {
+            width: 64,
+            height: 64,
+            rgba8: rgba,
+            wrap_s: WrapMode::Clamp,
+            wrap_t: WrapMode::Clamp,
+        }),
+    )
 }
 
 /// Explicit diagnostic edge overlay. Native collision remains untouched.
@@ -348,6 +402,44 @@ mod tests {
         assert_eq!(min, max);
         assert!(mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some());
         assert!(convert_batch(&batch, Mat4::from_scale(Vec3::ZERO)).is_err());
+    }
+
+    #[test]
+    fn authored_contact_shadow_is_soft_and_midtones_are_linearized_for_host_materials() {
+        let (mesh, image) = contact_shadow(Vec3::ZERO);
+        assert_eq!(mesh.count_vertices(), 6);
+        let pixels = image.data.unwrap();
+        assert_eq!(pixels[3], 0);
+        assert!(
+            pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| p[3])
+                .max()
+                .unwrap()
+                > 60
+        );
+        let vertex = Vertex {
+            position: [0.; 3],
+            normal: [0., 1., 0.],
+            uv: [0.; 2],
+            color: [0.5, 0.5, 0.5, 0.7],
+        };
+        let batch = Batch {
+            vertices: vec![vertex; 3],
+            texture: None,
+            cull_back: true,
+            alpha: N64Alpha::Opaque,
+        };
+        let (mesh, _, _) = convert_batch(&batch, Mat4::IDENTITY).unwrap();
+        let Some(bevy::mesh::VertexAttributeValues::Float32x4(colors)) =
+            mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("float vertex colors")
+        };
+        assert!((colors[0][0] - 0.21404114).abs() < 1e-6);
+        assert_eq!(colors[0][3], 0.7);
     }
 
     #[test]

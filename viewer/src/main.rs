@@ -1,12 +1,16 @@
 //! ROM-backed static terrain viewer; not gameplay or a full RDP renderer.
 mod mesh;
+mod skybox;
 mod visual;
 
 use anyhow::{Context, Result, bail};
 use bevy::{
     app::AppExit,
+    camera::Exposure,
     core_pipeline::tonemapping::{DebandDither, Tonemapping},
     input::mouse::AccumulatedMouseMotion,
+    light::Skybox,
+    pbr::{DistanceFog, FogFalloff},
     prelude::{
         AlphaMode, App, Assets, ButtonInput, Camera3d, ClearColor, Color, Commands, Component,
         DefaultPlugins, EulerRot, FontSize, Image, KeyCode, Mesh, Mesh3d, MeshMaterial3d,
@@ -41,6 +45,9 @@ struct Args {
     /// Add a static ROM center-idle Mario snapshot on verified flat ground (not gameplay).
     #[arg(long)]
     mario: bool,
+    /// Render the ROM ocean-sky panorama with approximate host projection and distance fog.
+    #[arg(long)]
+    skybox: bool,
     /// Reproducible camera position, comma-separated original SM64 units.
     #[arg(long, value_parser = parse_position, requires = "look_at", allow_hyphen_values = true)]
     camera: Option<Vec3>,
@@ -76,6 +83,8 @@ struct Scene {
     textures: Vec<sm64_gfx::Texture>,
     collision: Option<Mesh>,
     edges: Option<Mesh>,
+    sky: Option<Image>,
+    shadow: Option<(Mesh, Image)>,
     home: Transform,
     center: Vec3,
     radius: f32,
@@ -183,6 +192,7 @@ fn main() -> Result<()> {
         .with_context(|| "requested area has no static collision")?;
     let converted = mesh::convert(collision)?;
     let mut visuals = visual::load(&level, area)?;
+    let mut shadow = None;
     if args.mario {
         let floor = mesh::showcase_floor(collision)?;
         let mario = visual::load_mario(&rom, floor, -140.0)?;
@@ -191,7 +201,20 @@ fn main() -> Result<()> {
             mario.min, mario.max
         );
         visuals.append(mario)?;
+        shadow = Some(visual::contact_shadow(floor));
     }
+    let sky = if args.skybox {
+        let background = level.segment_data.resolve_range(0x0e0004a8, 8)?;
+        if background[..4] != [0x19, 0, 0, 0] {
+            bail!("unsupported BOB background declaration; no skybox guessed");
+        }
+        Some(skybox::cube_image(&sm64_gfx::skybox::decode_panorama(
+            &level.segment_data,
+            0x0a020000,
+        )?)?)
+    } else {
+        None
+    };
     for diagnostic in &visuals.diagnostics {
         eprintln!("Visual: {diagnostic}");
     }
@@ -228,6 +251,8 @@ fn main() -> Result<()> {
         textures: visuals.textures,
         collision: Some(converted.into_mesh()),
         edges: Some(visual::collision_lines(collision)?),
+        sky,
+        shadow,
         home,
         center,
         radius,
@@ -316,7 +341,22 @@ fn setup(
         RenderKind::Overlay,
         scene.visibility(&RenderKind::Overlay),
     ));
-    commands.spawn((
+    if let Some((mesh, image)) = scene.shadow.take() {
+        commands.spawn((
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color_texture: Some(images.add(image)),
+                unlit: true,
+                alpha_mode: AlphaMode::Blend,
+                cull_mode: None,
+                ..default()
+            })),
+            RenderKind::Textured,
+            terrain_visibility,
+        ));
+    }
+    let sky_handle = scene.sky.take().map(|image| images.add(image));
+    let mut camera = commands.spawn((
         Camera3d::default(),
         Tonemapping::None,
         DebandDither::Disabled,
@@ -328,6 +368,23 @@ fn setup(
         }),
         scene.home,
     ));
+    if let Some(image) = sky_handle {
+        camera.insert((
+            Skybox {
+                image: Some(image),
+                brightness: 1.0 / Exposure::default().exposure(),
+                ..default()
+            },
+            DistanceFog {
+                color: Color::srgb(0.70, 0.82, 0.95),
+                falloff: FogFalloff::Linear {
+                    start: 80.0,
+                    end: 200.0,
+                },
+                ..default()
+            },
+        ));
+    }
     commands.spawn((
         Text::new(scene.status()),
         StatusLabel,
@@ -519,6 +576,8 @@ mod tests {
             textures: vec![],
             collision: None,
             edges: None,
+            sky: None,
+            shadow: None,
             home: Transform::IDENTITY,
             center: Vec3::ZERO,
             radius: 1.,

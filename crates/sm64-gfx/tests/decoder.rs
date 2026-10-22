@@ -98,6 +98,47 @@ fn selected_environment_alpha_replaces_zero_vertex_alpha() {
 }
 
 #[test]
+fn posed_light_transform_changes_shading_not_returned_local_geometry() {
+    let mut d = fixture(&[
+        (0x03860010, 0x07000300),
+        (0x03880010, 0x07000310),
+        (0x04200030, 0x07000200),
+        (0xbf000000, 0x00000a14),
+        (0xb8000000, 0),
+    ]);
+    d[768..771].copy_from_slice(&[255, 255, 255]);
+    d[776] = 127;
+    for i in 0..3 {
+        d[512 + i * 16 + 12..512 + i * 16 + 16].copy_from_slice(&[127, 0, 0, 255]);
+    }
+    let m = map(&d);
+    let lit = sm64_gfx::DisplayListStream::new(&m)
+        .decode_next(0x07000000, 100)
+        .unwrap();
+    let dark = sm64_gfx::DisplayListStream::new(&m)
+        .decode_next_with_normal_transform(
+            0x07000000,
+            100,
+            [[0., 1., 0.], [-1., 0., 0.], [0., 0., 1.]],
+        )
+        .unwrap();
+    assert_eq!(lit.batches[0].vertices[0].color, [1., 1., 1., 1.]);
+    assert_eq!(dark.batches[0].vertices[0].color, [0., 0., 0., 1.]);
+    assert_eq!(
+        lit.batches[0].vertices[0].position,
+        dark.batches[0].vertices[0].position
+    );
+    assert_eq!(dark.batches[0].vertices[0].normal, [1., 0., 0.]);
+    let mut invalid = sm64_gfx::DisplayListStream::new(&m);
+    assert!(
+        invalid
+            .decode_next_with_normal_transform(0x07000000, 100, [[f32::NAN; 3]; 3])
+            .is_err()
+    );
+    assert!(invalid.decode_next(0x07000000, 100).is_err());
+}
+
+#[test]
 fn malformed_references_offsets_opcodes_cycles() {
     for commands in [
         vec![(0xbf000000, 0x00000a14)],

@@ -41,12 +41,13 @@ Viewer controls: **RMB** look · **WASD** fly · **Q/E** down/up · **Shift** fa
 **R** reset · **C** collision edges · **V** textured/collision view · **Esc** exit.
 This is static presentation: `--mario` adds a ROM-backed center-idle snapshot on
 verified flat terrain, not a controllable character. Enemies, moving objects,
-gameplay, audio and the original camera are absent. Skybox and native geometry callbacks are omitted with diagnostics;
+gameplay, audio and the original camera are absent. `--skybox` adds the ROM sky
+with approximate host projection/fog. Native geometry callbacks remain omitted;
 this is not pixel-exact N64 rendering.
 
 ```sh
 # Optional collision view or a new private screenshot (never overwrites).
-cargo run -p sm64-viewer -- --mario
+cargo run -p sm64-viewer -- --mario --skybox
 cargo run -p sm64-viewer -- --mode collision
 mkdir -p .cache
 cargo run -p sm64-viewer -- --shot .cache/bob.png

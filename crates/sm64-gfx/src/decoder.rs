@@ -54,6 +54,27 @@ impl<'a> DisplayListStream<'a> {
         entry: u32,
         remaining_commands: usize,
     ) -> Result<DisplayList, Error> {
+        self.decode_next_with_normal_transform(
+            entry,
+            remaining_commands,
+            [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+        )
+    }
+
+    /// Approximate world-space directional shading for posed joints. Matrix is
+    /// column-major inverse-transpose of the draw transform; positions/normals
+    /// returned to the caller remain local. Not original RSP quantization.
+    pub fn decode_next_with_normal_transform(
+        &mut self,
+        entry: u32,
+        remaining_commands: usize,
+        normal_transform: [[f32; 3]; 3],
+    ) -> Result<DisplayList, Error> {
+        if normal_transform.iter().flatten().any(|v| !v.is_finite()) {
+            self.poisoned = true;
+            return Err(Error("nonfinite lighting normal transform".into()));
+        }
+        self.decoder.normal_transform = normal_transform;
         if self.poisoned {
             return Err(Error(
                 "display-list stream poisoned by an earlier error".into(),
@@ -112,6 +133,7 @@ struct Decoder<'a> {
     triangles: usize,
     command_limit: usize,
     notices: HashSet<String>,
+    normal_transform: [[f32; 3]; 3],
 }
 impl<'a> Decoder<'a> {
     fn new(segments: &'a SegmentMap) -> Self {
@@ -140,6 +162,7 @@ impl<'a> Decoder<'a> {
             triangles: 0,
             command_limit: MAX_COMMANDS,
             notices: HashSet::new(),
+            normal_transform: [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
         }
     }
     fn note(&mut self, message: &str) {
@@ -183,7 +206,12 @@ impl<'a> Decoder<'a> {
                 f32::from(v[15]) / 255.,
             ];
             if self.geometry & 0x20000 != 0 {
-                self.note("Lighting is baked at VTX load using normalized object-space normals and directional lights; no RSP quantization or camera transform.");
+                self.note("Lighting is baked at VTX load using normalized normals and directional lights; optional caller-supplied joint normal transform, no RSP quantization or camera transform.");
+                let lit_normal = normalize(std::array::from_fn(|row| {
+                    (0..3)
+                        .map(|col| self.normal_transform[col][row] * normal[col])
+                        .sum()
+                }));
                 if self.lights[self.light_count].is_none() {
                     self.note("Missing inherited light state: neutral ambient approximation used.");
                 }
@@ -193,7 +221,7 @@ impl<'a> Decoder<'a> {
                 let mut rgb = ambient;
                 for j in 0..self.light_count {
                     if let Some(light) = self.lights[j] {
-                        let d = dot(normal, normalize(light.direction)).max(0.);
+                        let d = dot(lit_normal, normalize(light.direction)).max(0.);
                         for (c, component) in rgb.iter_mut().enumerate() {
                             *component += light.color[c] * d;
                         }

@@ -31,7 +31,7 @@ more accurate combiners/lighting/filtering, skybox and generated effects.
 
 ## Presentation showcase
 - [x] ROM-backed static Mario center-idle snapshot, explicit normal-cap graph profile
-- [ ] ROM skybox and coherent approximate presentation lighting/fog
+- [x] ROM skybox and coherent approximate presentation lighting/fog
 - [ ] Showcase camera, clean mode and fixed-resolution offscreen screenshots
 - [ ] Simple public-facing demo instructions and publication hygiene recheck
 
