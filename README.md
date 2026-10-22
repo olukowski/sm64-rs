@@ -1,225 +1,132 @@
 # sm64-rs
 
-A behavior-faithful native reimplementation of **Super Mario 64** in Rust,
-using a user-supplied ROM for content. No ROMs, Nintendo code, or game assets
-are included. This is not an emulator.
+An independent native Rust reimplementation of **Super Mario 64**, working toward
+behavior fidelity. Content comes from a ROM you legally supply: no ROMs, Nintendo
+code, extracted assets or captured game data are included. This is not an emulator.
 
-**Status:** the Bevy viewer renders Bob-omb Battlefield's **textured static terrain**
-from its geometry layouts, Fast3D display lists and ROM textures. Collision remains
-available as a diagnostic view/overlay. Materials and lighting are approximate;
-this is not a full N64 renderer or playable game. All format crates are engine-free.
+**Current scope:** inspect the recognized US revision 0 ROM and view Bob-omb
+Battlefield's textured **static terrain**, plus run a small reference-validated
+**headless movement slice**. The viewer is not playable; materials and lighting
+are approximate. Format and simulation crates are separate from Bevy presentation.
 
-## Try the ROM inspector
+## Quick start
 
-Requires a recent stable Rust toolchain and a ROM you are legally entitled to use.
-No ROM is bundled, searched for online, or downloaded.
+Install a recent stable [Rust toolchain](https://rustup.rs/). On Linux, building
+the viewer/workspace requires a C toolchain and window-system development libraries:
 
 ```sh
-# Point at your own legally supplied ROM.
-export SM64_ROM="/path/to/your/rom.z64"
-
-cargo run -p sm64x -- info
-cargo run -p sm64x -- mio0 list --validate
-
-# Decode the first MIO0 block in the recognized US revision 0 ROM.
-# Creates .cache/mio0/00108a40.bin; refuses to overwrite existing files.
-cargo run -p sm64x -- mio0 decode 0x108a40
+# Debian/Ubuntu
+sudo apt-get install build-essential pkg-config libx11-dev libxkbcommon-dev libwayland-dev
+# Arch equivalents: base-devel pkgconf libx11 libxkbcommon wayland
 ```
 
-Alternatively, pass `--rom "/path/to/your/rom"` before or after the command.
-An explicit path overrides `SM64_ROM`. ZIP/7z containers are not supported;
-select an already unpacked ROM.
-
-## Static terrain viewer
+The viewer also needs a graphical session and working graphics driver. Linux has
+been smoke-tested; other platforms are not validated. The CLI alone can be built
+with `cargo build -p sm64x` without Bevy's platform dependencies.
 
 ```sh
-# Uses SM64_ROM from above; exact US revision 0 is required.
+# Use your own unpacked ROM; no particular filename or extension is required.
+export SM64_ROM="/path/to/your/rom.z64"
+cargo run -p sm64x -- info
+cargo run -p sm64x -- level bob
 cargo run -p sm64-viewer
+```
 
-# Capture a NEW PNG and exit after it has been saved.
+Or pass `--rom /path/to/your/rom.z64` to select a ROM explicitly. Big-endian,
+pair-swapped and word-reversed images are recognized by bytes, not extensions.
+Archives are not supported; nothing downloads, patches or writes to your ROM.
+Course inspection/viewing requires the exact canonical **US revision 0** identity.
+
+Viewer controls: **RMB** look · **WASD** fly · **Q/E** down/up · **Shift** faster ·
+**R** reset · **C** collision edges · **V** textured/collision view · **Esc** exit.
+This is static geometry: no Mario, enemies, moving objects, gameplay, audio or
+original camera. Skybox and native geometry callbacks are omitted with diagnostics;
+this is not pixel-exact N64 rendering.
+
+```sh
+# Optional collision view or a new private screenshot (never overwrites).
+cargo run -p sm64-viewer -- --mode collision
 mkdir -p .cache
 cargo run -p sm64-viewer -- --shot .cache/bob.png
-```
-
-Controls: **RMB** look · **WASD** fly · **Q/E** down/up · **Shift** faster ·
-**R** reset · **C** toggle collision edges · **V** toggle textured/collision-only
-view · **Esc** exit. The initial overview fits the render geometry's bounds.
-
-```sh
-cargo run -p sm64-viewer -- --collision-overlay
-cargo run -p sm64-viewer -- --mode collision
-
-# Fixed camera in original SM64 units, not the viewer's 1:100 scale.
+# Fixed pose in original SM64 units, not the viewer's 1:100 scale:
 cargo run -p sm64-viewer -- \
   --camera=-8500,6500,11000 --look-at=0,1000,0 --shot .cache/bob-fixed.png
 ```
 
-`--area 1`, `--width` and `--height` are available. Screenshot parents must exist;
-existing files and symlinks are refused. Fixed camera position/target must be
-provided together. Screenshots capture whichever mode/overlay the CLI selects. The window compositor
-may override requested dimensions; match captured dimensions when comparing fixed
-camera images. Fixed-resolution offscreen captures are not implemented.
+Screenshot parents must exist. The compositor may override dimensions; fixed
+pose does not imply pixel-identical or fixed-resolution offscreen captures.
 
-This is static course geometry, not spawned objects: no Mario, enemies, animated
-platforms, macro/special objects, audio, original camera or gameplay. Native geometry
-callbacks, generated environment effects and skybox are omitted with diagnostics.
-Lighting, combiner effects, bilinear host filtering (without mipmaps) and render
-layers are approximations, not
-pixel-identical N64 output. The collision-only view uses invented diagnostic colors.
+## Headless tools
 
-Inspect the underlying course without opening a window:
-
-```sh
-cargo run -p sm64x -- level bob
-cargo run -p sm64x -- level bob --visuals --json
-```
-
-### Inspector commands
-
-| Command | Purpose |
+| Command (`cargo run -p sm64x -- …`) | Purpose |
 | --- | --- |
-| `info` | Size, source byte order, canonical SHA-1/SHA-256, exact revision recognition, N64 header |
-| `level bob [--visuals]` | Segment loads, static declarations and collision; optionally decode geometry/display lists/textures and report metadata |
-| `collision bob --at X,Y,Z` | Diagnostic static floor/ceiling/wall probes; not original gameplay collision |
-| `trace validate PATH` | Validate a versioned observation trace; no ROM needed |
-| `trace compare EXPECTED ACTUAL` | First input/state divergence; exact float bits by default; no ROM needed |
-| `mio0 list` | Find signature candidates and validate their headers |
-| `mio0 list --validate` | Additionally decode candidates to check their stream structure |
-| `mio0 decode OFFSET [--out PATH]` | Decode one block into a **new** output file |
+| `info` | Header, byte order, canonical hashes and exact revision recognition |
+| `level bob [--visuals]` | Static declarations/collision; optional geometry and texture metadata |
+| `collision bob --at X,Y,Z` | Diagnostic static floor/ceiling/wall probes, not original collision resolution |
+| `mio0 list --validate` | Scan signature candidates and validate/decode streams |
+| `mio0 decode 0x108a40` | Decode the first US0 block to a new ignored cache file |
+| `movement run SCENARIO` | Run the bounded native flat-walk slice without a ROM |
+| `trace validate PATH` | Validate an observation trace without a ROM |
+| `trace compare EXPECTED ACTUAL` | Report first divergence; exact float bits by default, no ROM needed |
 
-Use `--json` with any command for machine-readable output. Offsets accept decimal
-or `0x`-prefixed hexadecimal. CLI errors go to stderr with a nonzero exit status.
-A scan reports invalid/skipped candidates in its results; their presence is not
-itself a command failure.
+Use command `--help` for options and `--json` for machine-readable reports.
+Keep all ROM-derived reports/output in ignored `.cache/`, `extracted/` or `traces/`.
+MIO0 signatures are not a complete asset directory; header CRCs are stored values,
+not verified checksums. Unsupported static format/control-flow features fail
+explicitly; diagnostics distinguish omitted rendering features.
 
-```sh
-mkdir -p .cache/reports
-cargo run -p sm64x -- info --json > .cache/reports/info.json
-cargo run -p sm64x -- mio0 list --validate --json > .cache/reports/mio0.json
-cargo run -p sm64x -- mio0 decode --help
-```
-
-Keep extracted content and reports in ignored `.cache/` or `extracted/`.
-Decoding never overwrites an existing file, including symlinks, and never writes
-to the source ROM.
-
-### Identity and limitations
-
-- Detects big-endian `.z64`, pair-swapped `.v64`, and word-reversed `.n64` from
-  their magic bytes, **not their filename extensions**. Normalizes only in memory.
-- All reported offsets and identity hashes refer to canonical big-endian bytes.
-- Exact recognition currently covers **US revision 0**. Other N64 ROMs can be
-  inspected generically; a title or region byte does not establish authenticity.
-- CRC1/CRC2 are **stored header values, not recomputed/verified checksums**.
-- MIO0 signatures are candidates, not a complete asset directory. Successful
-  decoding does not identify a block's contents.
-- ROM input is capped at 64 MiB. MIO0 output defaults to 16 MiB per block;
-  `--max-output-mib 1..64` adjusts it. Scans additionally cap attempted decoded
-  output at 256 MiB and report at most 4,096 candidates. All candidates are
-  counted; truncation and skipped validation are explicit.
-- JSON `encoded_size` is the extent actually read from a block, including gaps,
-  not an aligned storage size or proof of the next block's location.
-- Course inspection supports a bounded static subset of level scripts, selects
-  BOB in the root dispatch and stops before native callbacks. It does not emulate
-  boot/menu behavior or a gameplay VM. Unsupported control flow fails explicitly.
-- Collision parsing stops at the triangle-stop marker; special objects and
-  environment-box tails are not decoded.
-- Static geometry-layout/Fast3D support targets BOB. Unsupported dynamic subtrees,
-  display-list opcodes and texture state fail explicitly rather than inventing data.
-- No general asset type identification, native boot checksum verification,
-  complete RSP/RDP emulation, skybox or gameplay implementation yet.
-
-All 79 US MIO0 outputs match an independently built established decoder
-byte-for-byte ([verification](docs/research/mio0-verification.md)). The course
-parser resolves 570 collision vertices and 1,060 collision triangles for BOB area 1.
-The textured viewer renders 1,101 visual triangles and 18 uploaded textures, with
-local GPU checks for textured/overlay/collision modes. See
-[textured milestone notes](docs/research/textured-bob.md).
-
-## Headless foundation
-
-`sm64-sim` now provides engine-free explicit ticks, raw input/button edges and
-state validation with a caller-supplied transition model. It does **not** implement
-Mario movement yet. Static geometric probes have authored slope/ledge/corner tests;
-these are not the original game's collision solver.
+The narrow [movement slice](docs/movement-slice.md) is headless only:
+idle → full-forward straight acceleration → release/braking to stop, inside an
+explicit caller-supplied flat lane. It fixes yaw toward **-Z**, accepts only
+neutral or **(0,80)** sticks with no buttons, and is **not** general collision
+or playable viewer movement. It supports 10–30 forward ticks through the first
+braking stop; low-speed release and stop animation are rejected. See the slice
+documentation for exact evidence and
+limits; an authored ROM-free example is:
 
 ```sh
-cargo run -p sm64x -- collision bob --at 0,1000,0 --json
-# Highest floor / lowest ceiling within an explicit inclusive height interval:
-cargo run -p sm64x -- collision bob --at 0,1000,0 --min-y=-1000 --max-y=1000
+cargo run -p sm64x -- movement run docs/examples/authored-movement.json
 ```
 
-Y in `--at` selects the wall probe slice. The floor and ceiling are selected across
-the height interval, not necessarily below/above that Y. Original coordinate
-quantization, surface exclusions and wall pushes are not implemented. See
-[simulation boundaries and reference-validation gate](docs/simulation.md) and
-[local validation notes](docs/research/headless-foundation.md).
-
-Trace tools work without a ROM. This checked-in example is **authored synthetic
-data**, not an original-game capture:
+Trace examples are authored synthetic data, not original-game captures:
 
 ```sh
 cargo run -p sm64x -- trace validate docs/examples/authored-trace.json
 cargo run -p sm64x -- trace compare \
   docs/examples/authored-trace.json docs/examples/authored-trace.json --json
-
-# For future private captures; exits nonzero on divergence or invalid input.
-# cargo run -p sm64x -- trace compare traces/reference.json traces/native.json
-# Add --absolute-tolerance 0.001 only when intentionally relaxing float equality.
 ```
 
-The library can replay inputs against a caller-supplied model; no gameplay replay
-CLI is offered until a real model exists. A trace is an observation stream, not a
-save-state or proof of capture authenticity. An optional [local reference emulator and capture adapter](docs/reference-emulator.md)
-now produces repeatable US0 action-boundary traces. Native movement and original
-collision resolution are still unimplemented.
+The optional [local reference emulator adapter](docs/reference-emulator.md) is
+separate from normal builds/tests. Private observations are not public fixtures
+or proof of general gameplay fidelity.
 
-## Development
+## Development and documentation
 
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-
-# Optional; selects the US reference ROM via SM64_ROM. Never runs in CI.
-cargo test --workspace --locked -- --ignored --nocapture
+python3 scripts/check_publication.py
+python3 -m unittest discover -s scripts/tests -v
+python3 -m unittest discover -s scripts/reference_emulator/tests -v
 ```
 
-Normal tests use authored synthetic data and require no ROM, window or GPU at
-runtime. Ignored ROM-dependent tests skip with a message when `SM64_ROM` is unset. Building the viewer/tests still requires Bevy's platform
-build dependencies.
+Normal tests need no ROM, emulator, window or GPU at runtime. Ignored ROM tests
+are opt-in (`cargo test --workspace --locked -- --ignored --nocapture`) and skip
+when `SM64_ROM` is unset. See [CONTRIBUTING.md](CONTRIBUTING.md) before sharing data.
 
-### Linux build requirements
-
-The viewer needs a working graphics driver and graphical session. The local
-smoke test used Linux/Wayland with an NVIDIA Vulkan driver; other platforms have
-not been validated.
-
-For Debian/Ubuntu, the CI build dependencies are:
-
-```sh
-sudo apt-get install build-essential pkg-config libx11-dev libxkbcommon-dev libwayland-dev
-```
-
-On Arch Linux, the corresponding packages are `base-devel`, `pkgconf`, `libx11`,
-`libxkbcommon` and `wayland`. Format-only commands can be built separately with
-`cargo build -p sm64x` without compiling the Bevy viewer.
-
-- [Architecture](docs/architecture.md)
-- [Roadmap](docs/roadmap.md)
-- [Simulation foundation and evidence boundaries](docs/simulation.md)
-- [Local reference emulator setup and capture](docs/reference-emulator.md)
-- [N64 ROM format notes](docs/formats/n64-rom.md)
-- [MIO0 format notes](docs/formats/mio0.md)
-- [Segments, scripts and collision](docs/formats/level-scripts.md)
-- [Static geometry layouts](docs/formats/geometry-layouts.md)
-- [Fast3D display lists and textures](docs/formats/fast3d.md)
-- [Provenance policy](docs/adr/0001-provenance.md)
-- [Contributor/agent rules](AGENTS.md)
+- [Architecture](docs/architecture.md) · [Roadmap](docs/roadmap.md)
+- [Simulation/evidence boundaries](docs/simulation.md) · [Movement slice](docs/movement-slice.md)
+- Formats: [ROM](docs/formats/n64-rom.md), [MIO0](docs/formats/mio0.md),
+  [scripts/collision](docs/formats/level-scripts.md),
+  [geometry](docs/formats/geometry-layouts.md), [Fast3D](docs/formats/fast3d.md)
+- Evidence: [79 independent MIO0 matches](docs/research/mio0-verification.md),
+  [BOB inspection](docs/research/bob-course.md), [textured terrain](docs/research/textured-bob.md),
+  [headless foundation](docs/research/headless-foundation.md)
+- [Provenance policy](docs/adr/0001-provenance.md) · [Contributor/agent rules](AGENTS.md)
 
 ## License
 
-Original project code is licensed under MIT OR Apache-2.0.
-Super Mario 64 and its content belong to Nintendo. This is an independent,
-unofficial project, not affiliated with or endorsed by Nintendo.
+Original project code: **MIT OR Apache-2.0**. Super Mario 64 and its content belong
+to Nintendo. This unofficial project is not affiliated with or endorsed by Nintendo.
 See [LEGAL.md](LEGAL.md).

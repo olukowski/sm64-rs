@@ -15,8 +15,8 @@ remaining evidence requirements.
 - With `SM64_ROM` unset, `cargo test --workspace --locked` passed: 116 tests,
   seven ignored ROM-dependent tests. Fixtures are authored synthetic data.
 - With the locally selected reference ROM, all seven ignored workspace tests
-  passed. Identity was reconfirmed as canonical US revision 0; the `.n64` filename
-  still contains pair-swapped data, normalized only in memory.
+  passed. Identity was reconfirmed as canonical US revision 0; pair-swapped input
+  was normalized only in memory, independently of its filename.
 - The new BOB test constructs the query world and samples a bounded XZ grid,
   checking finite floor results and preserved source surface IDs.
 - The new CLI collision smoke test verifies metadata, invalid-query failures and

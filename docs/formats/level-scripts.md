@@ -82,11 +82,11 @@ not this tail. Native object collision meshes are also absent.
 
 Format macros and metadata, read for understanding rather than copied as game code:
 
-- <https://github.com/n64decomp/sm64/blob/master/include/level_commands.h>
-- <https://github.com/n64decomp/sm64/blob/master/include/surface_terrains.h>
-- <https://github.com/n64decomp/sm64/blob/master/sm64.ld>
-- <https://github.com/n64decomp/sm64/blob/master/levels/scripts.c>
-- <https://github.com/n64decomp/sm64/blob/master/levels/bob/script.c>
+- <https://github.com/n64decomp/sm64/blob/9921382a68bb0c865e5e45eb594d9c64db59b1af/include/level_commands.h>
+- <https://github.com/n64decomp/sm64/blob/9921382a68bb0c865e5e45eb594d9c64db59b1af/include/surface_terrains.h>
+- <https://github.com/n64decomp/sm64/blob/9921382a68bb0c865e5e45eb594d9c64db59b1af/sm64.ld>
+- <https://github.com/n64decomp/sm64/blob/9921382a68bb0c865e5e45eb594d9c64db59b1af/levels/scripts.c>
+- <https://github.com/n64decomp/sm64/blob/9921382a68bb0c865e5e45eb594d9c64db59b1af/levels/bob/script.c>
 - <https://hack64.net/wiki/doku.php?id=super_mario_64:collision_data>
 
 All public tests use authored synthetic bytes. ROM-dependent tests are ignored

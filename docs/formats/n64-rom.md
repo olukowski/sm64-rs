@@ -50,7 +50,7 @@ and MIO0 scanning; no US-specific addresses are applied to them.
 ## References
 
 - [N64brew ROM header documentation](https://n64brew.dev/wiki/ROM_Header)
-- [n64decomp/sm64 canonical US SHA-1](https://github.com/n64decomp/sm64/blob/master/sm64.us.sha1)
+- [n64decomp/sm64 canonical US SHA-1](https://github.com/n64decomp/sm64/blob/9921382a68bb0c865e5e45eb594d9c64db59b1af/sm64.us.sha1)
 
 These notes and the Rust reader are written independently. No game code or
 extracted ROM fixtures are included.

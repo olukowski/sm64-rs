@@ -1,5 +1,7 @@
 name: CI
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -7,10 +9,16 @@ jobs:
       CARGO_BUILD_JOBS: 2
       CARGO_PROFILE_DEV_DEBUG: 0
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable snapshot
         with:
           components: rustfmt, clippy
+      - name: ROM-free publication hygiene
+        run: |
+          python3 scripts/check_publication.py --history
+          python3 -m unittest discover -s scripts/tests -v
       - name: Bevy window-system build dependencies
         run: |
           sudo apt-get update

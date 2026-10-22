@@ -11,11 +11,11 @@ selection belong to the caller; there are no native callbacks or gameplay.
 Format understanding was checked against these public references (cached locally
 under ignored `.cache/references/`, not vendored):
 
-- [Nintendo GBI format header, public sm64 repository](https://github.com/n64decomp/sm64/blob/master/include/PR/gbi.h),
+- [Nintendo GBI format header, public sm64 repository](https://github.com/n64decomp/sm64/blob/9921382a68bb0c865e5e45eb594d9c64db59b1af/include/PR/gbi.h),
   specifically the **non-F3DEX / non-F3DEX2** macros and texture format constants.
-- MIT [queueRAM/sm64tools f3d.c](https://github.com/queueRAM/sm64tools/blob/master/f3d.c)
+- MIT [queueRAM/sm64tools f3d.c](https://github.com/queueRAM/sm64tools/blob/81de9e5a8f0fa96686a16441d5b9f25742f4d17d/f3d.c)
   for old command field interpretation.
-- MIT [queueRAM/sm64tools n64graphics.c](https://github.com/queueRAM/sm64tools/blob/master/n64graphics.c)
+- MIT [queueRAM/sm64tools n64graphics.c](https://github.com/queueRAM/sm64tools/blob/81de9e5a8f0fa96686a16441d5b9f25742f4d17d/n64graphics.c)
   for texture-channel format understanding.
 
 No game/decompiler implementation, extracted asset, ROM bytes, or reference trace

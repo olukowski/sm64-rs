@@ -15,3 +15,28 @@ roms/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Local agent sessions and runtime artifacts (not source/test fixtures).
+.pi/
+/captures/
+/screenshots/
+/saves/
+/savestates/
+/logs/
+*.sav
+*.sra
+*.eep
+*.fla
+*.state
+*.st
+*.m64
+*.log
+*.log.*
+/core
+/core.*
+*.core
+*.dmp
+# Keep images scoped to private output directories; do not hide authored fixtures.
+.env
+.env.*
+!.env.example

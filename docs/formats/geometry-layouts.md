@@ -8,9 +8,9 @@ object model layouts are not automatically instantiated.
 ## References and provenance
 
 Format research used the public descriptions/macros in
-[n64decomp/sm64 `include/geo_commands.h`](https://github.com/n64decomp/sm64/blob/master/include/geo_commands.h)
+[n64decomp/sm64 `include/geo_commands.h`](https://github.com/n64decomp/sm64/blob/9921382a68bb0c865e5e45eb594d9c64db59b1af/include/geo_commands.h)
 and the structural example in
-[`levels/bob/areas/1/geo.inc.c`](https://github.com/n64decomp/sm64/blob/master/levels/bob/areas/1/geo.inc.c).
+[`levels/bob/areas/1/geo.inc.c`](https://github.com/n64decomp/sm64/blob/9921382a68bb0c865e5e45eb594d9c64db59b1af/levels/bob/areas/1/geo.inc.c).
 The decoder and synthetic test fixtures are independently authored Rust; no game
 implementation or extracted geometry is incorporated. Research downloads and
 local-ROM output belong in ignored `.cache/`, not fixtures or documentation.

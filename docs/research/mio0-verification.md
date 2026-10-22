@@ -14,7 +14,7 @@ standalone C `mio0` decoder. No reference decoder was newly implemented.
 - All corresponding output lengths also equal the inventory's decoded sizes.
 - Source and cached canonical ROM hashes were unchanged after comparison.
 
-The retained local run is `.cache/reference-mio0/run-<unique-id>/`, containing
+Each retained local run uses `.cache/reference-mio0/run-<unique-id>/`, containing
 `inventory.json`, `comparison.json`, normalized input and both outputs for every
 block. The comparison report includes per-block offsets, sizes and SHA-256s.
 Equality is checked directly on bytes, not inferred from those hashes.

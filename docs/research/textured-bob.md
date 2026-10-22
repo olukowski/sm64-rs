@@ -18,7 +18,8 @@ Sources and details: [geometry layouts](../formats/geometry-layouts.md),
 
 ## Local GPU checks
 
-The viewer was run on Linux/Wayland with an NVIDIA driver and Vulkan.
+The viewer was run on Linux/Wayland with an NVIDIA Vulkan driver. This is one local driver/backend check,
+not a hardware requirement or cross-platform validation.
 The saved PNGs were inspected: original grass/rock/path/bridge/fence textures are
 visible on the original terrain meshes; diagnostic cyan collision edges align
 with the terrain while exposing differences between collision and visual geometry.
