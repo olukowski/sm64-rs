@@ -449,3 +449,133 @@ fn stream_inherits_othermode_and_primitive_environment_alpha() {
         assert_eq!(next.batches[1].alpha, AlphaMode::Mask);
     }
 }
+
+// Author-built commands from GBI gsDPSetCombineLERP/GCCc*w* field layout.
+// RGB inputs are a,b,c,d; alpha is independently set to SHADE in both cycles.
+fn combine_rgb(c0: [u32; 4], c1: [u32; 4]) -> (u32, u32) {
+    let [a0, b0, c0, d0] = c0;
+    let [a1, b1, c1, d1] = c1;
+    (
+        0xfc000000 | (a0 << 20) | (c0 << 15) | (7 << 12) | (7 << 9) | (a1 << 5) | c1,
+        (b0 << 28)
+            | (b1 << 24)
+            | (7 << 21)
+            | (7 << 18)
+            | (d0 << 15)
+            | (7 << 12)
+            | (4 << 9)
+            | (d1 << 6)
+            | (7 << 3)
+            | 4,
+    )
+}
+
+#[test]
+fn rgb_combiner_exact_fields_split_and_unknown_fallback() {
+    use sm64_gfx::ColorCombiner::{Decal, Modulate};
+    let decal = [1, 4, 8, 4];
+    let modulate = [1, 15, 4, 7];
+    // Changing either cycle or any RGB input must not falsely claim Decal.
+    let mut cases = vec![(decal, decal, Decal), (modulate, modulate, Modulate)];
+    for cycle in 0..2 {
+        for input in 0..4 {
+            let mut changed = decal;
+            changed[input] ^= 1;
+            cases.push(if cycle == 0 {
+                (changed, decal, Modulate)
+            } else {
+                (decal, changed, Modulate)
+            });
+        }
+    }
+    for (c0, c1, expected) in cases {
+        let data = fixture(&[
+            (0xb6000000, 0x20000),
+            (0x04200030, 0x07000200),
+            (0xbf000000, 0x00000a14), // default is Modulate
+            combine_rgb(c0, c1),
+            (0xbf000000, 0x00000a14),
+            combine_rgb(modulate, modulate),
+            (0xbf000000, 0x00000a14),
+            (0xb8000000, 0),
+        ]);
+        let out = decode_display_list(&map(&data), 0x07000000).unwrap();
+        assert_eq!(out.batches[0].color_combiner, Modulate);
+        if expected == Decal {
+            assert_eq!(out.batches.len(), 3);
+            assert_eq!(out.batches[1].color_combiner, Decal);
+            assert_eq!(out.batches[2].color_combiner, Modulate);
+        } else {
+            assert_eq!(out.batches.len(), 1);
+            assert_eq!(out.batches[0].vertices.len(), 9);
+            if c0 != modulate || c1 != modulate {
+                assert!(
+                    out.diagnostics
+                        .iter()
+                        .any(|s| s.contains("Unknown RGB combiner"))
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn rgb_combiner_inherits_across_stream_roots() {
+    use sm64_gfx::ColorCombiner::{Decal, Modulate};
+    let mut data = fixture(&[combine_rgb([1, 4, 8, 4], [1, 4, 8, 4]), (0xb8000000, 0)]);
+    let root = fixture(&[
+        (0xb6000000, 0x20000),
+        (0x04200030, 0x07000200),
+        (0xbf000000, 0x00000a14),
+        combine_rgb([1, 15, 4, 7], [1, 15, 4, 7]),
+        (0xbf000000, 0x00000a14),
+        (0xb8000000, 0),
+    ]);
+    data[64..112].copy_from_slice(&root[..48]);
+    let segments = map(&data);
+    let mut stream = sm64_gfx::DisplayListStream::new(&segments);
+    assert!(
+        stream
+            .decode_next(0x07000000, 100)
+            .unwrap()
+            .batches
+            .is_empty()
+    );
+    let out = stream.decode_next(0x07000040, 100).unwrap();
+    assert_eq!(out.batches.len(), 2);
+    assert_eq!(out.batches[0].color_combiner, Decal);
+    assert_eq!(out.batches[1].color_combiner, Modulate);
+}
+
+#[test]
+fn decal_texture_alpha_interpolates_rgb_without_masking_shade_base() {
+    use sm64_gfx::ColorCombiner::{Decal, Modulate};
+    let mut data = fixture(&[
+        (0xb6000000, 0x20000),
+        (0x04200030, 0x07000200),
+        (0xfd100000, 0x07000300),
+        (0xf5100000, 0x07000000),
+        (0xf3000000, 0x07000000),
+        (0xf5100000, 0),
+        (0xf2000000, 0),
+        (0xbb000001, 0xffffffff),
+        combine_rgb([1, 15, 4, 7], [1, 15, 4, 7]),
+        (0xbf000000, 0x00000a14),
+        combine_rgb([1, 4, 8, 4], [1, 4, 8, 4]),
+        (0xbf000000, 0x00000a14),
+        (0xb8000000, 0),
+    ]);
+    // Transparent black texel: Decal must still display the entire shade base.
+    data[768..770].copy_from_slice(&[0, 0]);
+    let out = decode_display_list(&map(&data), 0x07000000).unwrap();
+    assert_eq!(out.batches.len(), 2);
+    assert_eq!(out.batches[0].color_combiner, Modulate);
+    assert_eq!(out.batches[0].alpha, AlphaMode::Mask);
+    assert_eq!(out.batches[1].color_combiner, Decal);
+    assert_eq!(out.batches[1].alpha, AlphaMode::Opaque);
+    assert_eq!(out.batches[0].texture, out.batches[1].texture);
+    assert_eq!(
+        out.batches[0].vertices[0].color,
+        out.batches[1].vertices[0].color
+    );
+}

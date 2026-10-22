@@ -10,6 +10,8 @@ fn local_mario_idle_display_lists() {
     let mario = sm64_level::actors::load_mario_idle(&rom).unwrap();
     let mut triangles = 0;
     let mut textures = 0;
+    let mut decal_batches = 0;
+    let mut combine_observations = std::collections::BTreeSet::new();
     let mut commands = mario.geometry.commands_inspected;
     eprintln!(
         "Mario: {} geo draws, {} geo commands",
@@ -25,6 +27,16 @@ fn local_mario_idle_display_lists() {
         let decoded = stream
             .decode_next(draw.display_list, 1_000_000usize.saturating_sub(commands))
             .unwrap_or_else(|e| panic!("DL 0x{:08x}: {e}", draw.display_list));
+        decal_batches += decoded
+            .batches
+            .iter()
+            .filter(|b| b.color_combiner == sm64_gfx::ColorCombiner::Decal)
+            .count();
+        for diagnostic in &decoded.diagnostics {
+            if diagnostic.contains("SET_COMBINE") {
+                combine_observations.insert(diagnostic.clone());
+            }
+        }
         let missing = decoded
             .diagnostics
             .iter()
@@ -55,6 +67,11 @@ fn local_mario_idle_display_lists() {
     assert!(mario.geometry.draws.len() > 10);
     assert!(triangles > 500);
     assert!(textures > 0);
+    assert!(decal_batches > 0, "expected Mario texture-alpha RGB decals");
+    eprintln!("Mario Decal batches: {decal_batches}");
+    for observation in combine_observations {
+        eprintln!("{observation}");
+    }
     assert!(red > 0, "expected red shaded vertices");
     assert!(blue > 0, "expected blue shaded vertices");
     assert!(white > 0, "expected neutral bright glove vertices");

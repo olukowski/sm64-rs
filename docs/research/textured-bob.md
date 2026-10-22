@@ -52,9 +52,10 @@ cargo run -p sm64-viewer -- --mode collision
 ```
 
 C toggles edges; V toggles textured/collision-only mode. Camera arguments reproduce
-the pose, not a pixel-identical capture: the window compositor can override requested
-dimensions/aspect. Match captured dimensions for visual comparisons. Offscreen,
-fixed-resolution regression captures are not implemented.
+the pose, not original-game pixels. At this historical terrain milestone,
+screenshots used a compositor-sized window. The subsequent
+[showcase capture path](../showcase.md) now renders fixed-resolution offscreen
+images without a window; use that path for new comparisons.
 
 ## Validation and limitations
 

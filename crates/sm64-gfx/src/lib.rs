@@ -22,6 +22,16 @@ pub enum AlphaMode {
     Mask,
     Blend,
 }
+/// Bounded RGB material approximation, not a full RDP combiner.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum ColorCombiner {
+    /// Texture RGB times baked vertex shade (also the fallback for unknown muxes).
+    #[default]
+    Modulate,
+    /// `(TEXEL0 - SHADE) * TEXEL0_ALPHA + SHADE`.
+    /// Texture alpha interpolates RGB; it does not cut holes in the shade base.
+    Decal,
+}
 #[derive(Debug, Clone)]
 pub struct Texture {
     pub width: u32,
@@ -44,6 +54,7 @@ pub struct Batch {
     pub texture: Option<usize>,
     pub cull_back: bool,
     pub alpha: AlphaMode,
+    pub color_combiner: ColorCombiner,
 }
 #[derive(Debug, Clone)]
 pub struct DisplayList {

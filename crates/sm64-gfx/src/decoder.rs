@@ -1,5 +1,5 @@
 use crate::{
-    AlphaMode, Batch, DisplayList, Error, Vertex,
+    AlphaMode, Batch, ColorCombiner, DisplayList, Error, Vertex,
     texture::{self, Tile},
 };
 use sm64_level::segments::SegmentMap;
@@ -130,6 +130,7 @@ struct Decoder<'a> {
     env: [f32; 4],
     prim: [f32; 4],
     alpha_source: u8,
+    color_combiner: ColorCombiner,
     triangles: usize,
     command_limit: usize,
     notices: HashSet<String>,
@@ -159,10 +160,39 @@ impl<'a> Decoder<'a> {
             env: [1.; 4],
             prim: [1.; 4],
             alpha_source: 4,
+            color_combiner: ColorCombiner::default(),
             triangles: 0,
             command_limit: MAX_COMMANDS,
             notices: HashSet::new(),
             normal_transform: [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+        }
+    }
+    fn set_rgb_combiner(&mut self, w0: u32, w1: u32) {
+        // Nintendo GBI gbi.h: gsDPSetCombineLERP / GCCc{0,1}w{0,1}.
+        // RGB is (a-b)*c+d. Selector widths differ by input; e.g. zero
+        // is 15 in a/b, 31 in c, 7 in d, not one universal selector.
+        let rgb0 = [
+            (w0 >> 20) & 15,
+            (w1 >> 28) & 15,
+            (w0 >> 15) & 31,
+            (w1 >> 15) & 7,
+        ];
+        let rgb1 = [(w0 >> 5) & 15, (w1 >> 24) & 15, w0 & 31, (w1 >> 6) & 7];
+        // Bounded policy: only identical, independent cycle RGB expressions
+        // are recognized. This works in one-cycle (cycle 1 selectors) and
+        // two-cycle modes without evaluating COMBINED/TEXEL1 or tracking
+        // cycle type. Mixed cycles deliberately fall back, with a diagnostic.
+        self.color_combiner = if rgb0 == [1, 4, 8, 4] && rgb1 == rgb0 {
+            ColorCombiner::Decal
+        } else {
+            ColorCombiner::Modulate
+        };
+        if self.color_combiner == ColorCombiner::Decal {
+            self.note(&format!("Decal RGB: SET_COMBINE {w0:08x} {w1:08x}, cycles {rgb0:?}/{rgb1:?}; texture alpha interpolates shade base. Alpha remains approximated; no full RDP emulation."));
+        } else if rgb0 != [1, 15, 4, 7] || rgb1 != rgb0 {
+            self.note(&format!("Unknown RGB combiner: SET_COMBINE {w0:08x} {w1:08x}, cycles {rgb0:?}/{rgb1:?}; approximated as texture × baked vertex shade, not full RDP emulation."));
+        } else {
+            self.note("Modulate RGB recognized; alpha approximated with primitive/environment alpha when selected, not full RDP emulation.");
         }
     }
     fn note(&mut self, message: &str) {
@@ -319,22 +349,25 @@ impl<'a> Decoder<'a> {
             AlphaMode::Opaque
         };
         if alpha == AlphaMode::Opaque
-            && (self.other_l & 3 != 0 || texture.is_some_and(|i| self.texture_has_alpha[i]))
+            && (self.other_l & 3 != 0
+                || (self.color_combiner != ColorCombiner::Decal
+                    && texture.is_some_and(|i| self.texture_has_alpha[i])))
         {
             alpha = AlphaMode::Mask;
         }
         let cull_back = self.geometry & 0x2000 != 0;
-        if self
-            .out
-            .batches
-            .last()
-            .is_none_or(|b| b.texture != texture || b.cull_back != cull_back || b.alpha != alpha)
-        {
+        if self.out.batches.last().is_none_or(|b| {
+            b.texture != texture
+                || b.cull_back != cull_back
+                || b.alpha != alpha
+                || b.color_combiner != self.color_combiner
+        }) {
             self.out.batches.push(Batch {
                 vertices: vec![],
                 texture,
                 cull_back,
                 alpha,
+                color_combiner: self.color_combiner,
             });
         }
         let dims = if texture.is_some() {
@@ -522,7 +555,7 @@ impl<'a> Decoder<'a> {
                     0xfa => self.prim = rgba(w1),
                     0xfb => self.env = rgba(w1),
                     0xfc => {
-                        self.note("Combiner approximated as texture × baked vertex shade, with primitive/environment alpha when selected; no RDP combiner emulation.");
+                        self.set_rgb_combiner(w0, w1);
                         let d = (w1 & 7) as u8;
                         let c = ((w1 >> 18) & 7) as u8;
                         self.alpha_source = if d == 3 || d == 5 {

@@ -56,8 +56,9 @@ cargo run -p sm64-viewer -- \
   --camera=-8500,6500,11000 --look-at=0,1000,0 --shot .cache/bob-fixed.png
 ```
 
-Screenshot parents must exist. The compositor may override dimensions; fixed
-pose does not imply pixel-identical or fixed-resolution offscreen captures.
+Screenshot parents must exist. `--shot` renders to a fixed-size offscreen image
+without a window; the compositor cannot resize it. See the
+[showcase guide](docs/showcase.md) for a composed Mario/BOB scene and capture details.
 
 ## Headless tools
 

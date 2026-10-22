@@ -95,7 +95,13 @@ claimed.
   light transform or integer RSP quantization. Actor streams can supply a
   per-joint inverse-transpose normal transform for coherent approximate world-space
   directional shading; positions/normals returned to the caller stay local.
-- Combiner RGB is approximated as texture times baked shade. Selected primitive
+- `Batch::color_combiner` distinguishes a common decal RGB form from the
+  default texture-times-shade approximation. Decal is recognized only when both
+  encoded RGB cycles are `(TEXEL0 - SHADE) * TEXEL0_ALPHA + SHADE`; mixed/unknown
+  muxes retain an explicit fallback diagnostic. The actor viewer uses an opaque
+  shaded base plus an untinted alpha-blended texture overlay for this bounded
+  expression, preserving cap logos/buttons/face decals. Host linear blending and
+  filtering are still approximations. Other combiner RGB uses texture times baked shade. Selected primitive
   or environment alpha replaces shade alpha when selected, rather than being
   multiplied by a raw vertex-alpha byte. Arbitrary RGB mux expressions are **not**
   evaluated; every SET_COMBINE produces a deduplicated approximation diagnostic.

@@ -147,6 +147,15 @@ fn from_geo(
                     N64Alpha::Blend => AlphaMode::Blend,
                 },
             };
+            if inherited_state
+                && batch.color_combiner == sm64_gfx::ColorCombiner::Decal
+                && let Some(texture) = texture
+            {
+                result
+                    .batches
+                    .extend(decal_passes(mesh, &batch, transform, texture, draw.layer)?);
+                continue;
+            }
             result.batches.push(VisualBatch {
                 mesh,
                 texture,
@@ -162,6 +171,42 @@ fn from_geo(
         bail!("geometry layout produced no static render triangles");
     }
     Ok(result)
+}
+
+// Common decal RGB is alpha interpolation over SHADE, not texture * shade.
+// Opaque shaded base + white-tinted transparent texture is the same bounded RGB
+// expression, subject to host blending/filtering/color-space approximations.
+fn decal_passes(
+    base_mesh: Mesh,
+    batch: &Batch,
+    transform: Mat4,
+    texture: usize,
+    layer: u8,
+) -> Result<[VisualBatch; 2]> {
+    let base = VisualBatch {
+        mesh: base_mesh,
+        texture: None,
+        alpha: AlphaMode::Opaque,
+        cull_back: batch.cull_back,
+        layer,
+        placement: Transform::IDENTITY,
+    };
+    let mut overlay = batch.clone();
+    for vertex in &mut overlay.vertices {
+        vertex.color = [1.; 4];
+    }
+    let (mesh, _, _) = convert_batch(&overlay, transform)?;
+    Ok([
+        base,
+        VisualBatch {
+            mesh,
+            texture: Some(texture),
+            alpha: AlphaMode::Blend,
+            cull_back: batch.cull_back,
+            layer: 6,
+            placement: Transform::IDENTITY,
+        },
+    ])
 }
 
 /// Static presentation placement, not a gameplay spawn or collision response.
@@ -395,6 +440,7 @@ mod tests {
             texture: None,
             cull_back: true,
             alpha: N64Alpha::Opaque,
+            color_combiner: sm64_gfx::ColorCombiner::Modulate,
         };
         let transform = Mat4::from_translation(Vec3::new(100., 200., 300.));
         let (mesh, min, max) = convert_batch(&batch, transform).unwrap();
@@ -431,6 +477,7 @@ mod tests {
             texture: None,
             cull_back: true,
             alpha: N64Alpha::Opaque,
+            color_combiner: sm64_gfx::ColorCombiner::Modulate,
         };
         let (mesh, _, _) = convert_batch(&batch, Mat4::IDENTITY).unwrap();
         let Some(bevy::mesh::VertexAttributeValues::Float32x4(colors)) =
@@ -440,6 +487,36 @@ mod tests {
         };
         assert!((colors[0][0] - 0.21404114).abs() < 1e-6);
         assert_eq!(colors[0][3], 0.7);
+    }
+
+    #[test]
+    fn decal_rgb_keeps_shaded_base_and_untinted_texture_overlay_separate() {
+        let vertex = Vertex {
+            position: [0., 1., 0.],
+            normal: [0., 1., 0.],
+            uv: [0.; 2],
+            color: [0.4, 0.25, 0.125, 1.],
+        };
+        let batch = Batch {
+            vertices: vec![vertex; 3],
+            texture: Some(0),
+            cull_back: true,
+            alpha: N64Alpha::Opaque,
+            color_combiner: sm64_gfx::ColorCombiner::Decal,
+        };
+        let (mesh, _, _) = convert_batch(&batch, Mat4::IDENTITY).unwrap();
+        let [base, overlay] = decal_passes(mesh, &batch, Mat4::IDENTITY, 7, 1).unwrap();
+        assert!(base.texture.is_none());
+        assert_eq!(base.alpha, AlphaMode::Opaque);
+        assert_eq!(overlay.texture, Some(7));
+        assert_eq!(overlay.alpha, AlphaMode::Blend);
+        assert_eq!(overlay.layer, 6);
+        let Some(bevy::mesh::VertexAttributeValues::Float32x4(colors)) =
+            overlay.mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("float colors")
+        };
+        assert!(colors.iter().all(|color| *color == [1.; 4]));
     }
 
     #[test]

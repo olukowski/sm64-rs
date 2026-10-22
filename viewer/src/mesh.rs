@@ -78,10 +78,13 @@ pub fn convert(source: &CollisionMesh) -> Result<Converted> {
     Ok(result)
 }
 
-/// Authored showcase location on BOB's initial flat plateau. This checks static
+/// Authored showcase location on BOB's upper flat field. This checks static
 /// geometry for presentation only; it is NOT the original game's floor solver.
 pub fn showcase_floor(source: &CollisionMesh) -> Result<Vec3> {
-    let (x, z) = (-5500.0_f32, 5500.0_f32);
+    flat_floor_at(source, -4500.0, 0.0)
+}
+
+fn flat_floor_at(source: &CollisionMesh, x: f32, z: f32) -> Result<Vec3> {
     let floor = |x: f32, z: f32| -> Option<f32> {
         source
             .triangles
@@ -168,13 +171,13 @@ mod tests {
             consumed: 0,
         };
         assert_eq!(
-            showcase_floor(&source).unwrap(),
+            flat_floor_at(&source, -5500., 5500.).unwrap(),
             Vec3::new(-5500., 25., 5500.)
         );
         source.triangles.pop();
-        assert!(showcase_floor(&source).is_err());
+        assert!(flat_floor_at(&source, -5500., 5500.).is_err());
         source.vertices[0][1] = 26;
-        assert!(showcase_floor(&source).is_err());
+        assert!(flat_floor_at(&source, -5500., 5500.).is_err());
     }
 
     #[test]
