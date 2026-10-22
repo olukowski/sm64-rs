@@ -66,6 +66,17 @@ SHA-256: 17ce077343c6133f8c9f2d6d6d9a4ab62c8cd2aa57c40aea1f490b4c8bb21d91
         for path in [Path(SPEC.origin), Path(__file__)]:
             self.assertEqual(checker.check_content(path.read_bytes()), [])
 
+    def test_showcase_exception_is_exact_and_requires_png(self):
+        name = 'docs/images/showcase.png'
+        data = b'\x89PNG\r\n\x1a\n' + b'\0synthetic'
+        self.assertEqual(checker.check_name(name), [])
+        self.assertEqual(checker.check_content(data, name), [])
+        self.assertTrue(checker.check_content(b'not a PNG', name))
+        for other in ['docs/images/other.png', 'other/showcase.png',
+                      'docs/images/showcase.PNG', '.cache/showcase.png']:
+            self.assertTrue(checker.check_name(other))
+            self.assertTrue(checker.check_content(data, other))
+
     def test_binary_and_invalid_utf8(self):
         self.assertTrue(checker.check_content(bytes([0x80, 0x37, 0x12, 0x40])))
         self.assertTrue(checker.check_content(b'authored\0binary'))
@@ -120,6 +131,25 @@ class RepositoryTests(unittest.TestCase):
         before = self.git('log', '--format=%H %an %ae')
         checker.scan(self.root, history=True)
         self.assertEqual(before, self.git('log', '--format=%H %an %ae'))
+
+    def test_showcase_in_worktree_and_history(self):
+        # Synthetic signature-only payload, not game-derived imagery.
+        data = b'\x89PNG\r\n\x1a\n' + b'\0synthetic'
+        path = self.root / 'docs/images/showcase.png'
+        path.parent.mkdir(parents=True)
+        path.write_bytes(data)
+        self.git('add', '.')
+        self.git('commit', '-qm', 'Synthetic showcase exception')
+        self.assertEqual(checker.scan(self.root, history=True), [])
+        # The same blob at a non-allowlisted path must still fail history checks.
+        (self.root / 'other.png').write_bytes(data)
+        self.git('add', '.')
+        self.git('commit', '-qm', 'Synthetic prohibited duplicate')
+        self.git('rm', 'other.png')
+        self.git('commit', '-qm', 'Remove synthetic duplicate')
+        self.assertEqual(checker.scan(self.root), [])
+        failures = checker.scan(self.root, history=True)
+        self.assertTrue(any('binary/NUL' in issue for issue in failures))
 
     def test_tracked_symlink_is_rejected_without_reading_target(self):
         (self.root / 'link.md').symlink_to('missing-private-target')

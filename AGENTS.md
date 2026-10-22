@@ -12,7 +12,8 @@ movement/original collision remain unimplemented. This is not an emulator.
 
 - Never commit ROMs, extracted assets, game code, disassembly, decompiler output,
   or reference traces. Game-derived output belongs in ignored `.cache/`,
-  `extracted/`, or `traces/` directories.
+  `extracted/`, or `traces/` directories. The one exception to this rule is showcase screenshots,
+  those are allowed but must be clearly labelled as derived work.
 - Open the user's ROM read-only; never patch or modify it. Do not download ROMs.
 - Format knowledge may come from documented prior art; credit it. Public decompilation
   does not automatically grant permission to copy or relicense game code.

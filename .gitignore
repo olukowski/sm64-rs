@@ -1,5 +1,5 @@
 /target/
-# All game-derived material stays local.
+# Game-derived material stays local except labelled documentation showcase screenshots.
 .cache/
 extracted/
 traces/

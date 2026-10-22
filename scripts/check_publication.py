@@ -23,6 +23,9 @@ PROHIBITED_SUFFIXES = frozenset({
     '.state', '.st', '.m64', '.log', '.dmp', '.core', '.pyc', '.o', '.so',
     '.dll', '.exe', '.elf', '.wasm', '.pem', '.key', '.p12', '.pfx',
 })
+# Explicitly reviewed documentation imagery, not a general image exemption.
+SHOWCASE_IMAGES = frozenset({'docs/images/showcase.png'})
+
 # Match workstation profiles, not technical addresses, URLs, /usr or /path/to.
 WORKSTATION_PATH = re.compile(
     r'(?<![\w:])/(?:home|Users)/[^\s/<>"\x27`]+(?:/|\b)'
@@ -51,7 +54,8 @@ def check_name(name):
     if any(part in PRIVATE_DIRS for part in parts[:-1]):
         issues.append('private/generated directory')
     base = parts[-1] if parts else ''
-    if (path.suffix.lower() in PROHIBITED_SUFFIXES or base == '.env'
+    if ((path.suffix.lower() in PROHIBITED_SUFFIXES and name not in SHOWCASE_IMAGES)
+            or base == '.env'
             or (base.startswith('.env.') and base != '.env.example')
             or base in {'id_rsa', 'id_ed25519', 'core'}
             or re.fullmatch(r'core\.\d+', base)):
@@ -59,8 +63,10 @@ def check_name(name):
     return issues
 
 
-def check_content(data):
+def check_content(data, name=None):
     """Inspect bytes without dumping sensitive matches into CI logs."""
+    if name in SHOWCASE_IMAGES:
+        return [] if data.startswith(b'\x89PNG\r\n\x1a\n') else ['showcase image must be PNG']
     if b'\0' in data:
         return ['binary/NUL content (public fixtures must be authored text)']
     try:
@@ -101,7 +107,7 @@ def scan(root, history=False):
         if path.is_symlink():
             report(name, ['symlink not allowed in public source'])
         elif path.is_file():
-            report(name, check_content(path.read_bytes()))
+            report(name, check_content(path.read_bytes(), name))
         elif path.exists():
             report(name, ['non-file tracked entry (submodules are not scanned)'])
         # Missing tracked paths are local deletions, not publication contents.
@@ -120,9 +126,10 @@ def scan(root, history=False):
                 report(label, check_name(name))
                 if kind != b'blob' or mode == b'120000':
                     report(label, ['non-regular history entry'])
-                elif oid not in seen_blobs:
-                    seen_blobs.add(oid)
-                    report(label, check_content(git(root, 'cat-file', 'blob', oid.decode())))
+                elif (oid, name in SHOWCASE_IMAGES) not in seen_blobs:
+                    seen_blobs.add((oid, name in SHOWCASE_IMAGES))
+                    report(label, check_content(
+                        git(root, 'cat-file', 'blob', oid.decode()), name))
     return failures
 
 

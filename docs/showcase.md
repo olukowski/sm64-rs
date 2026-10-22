@@ -88,11 +88,13 @@ Details and evidence: [Mario/animation format](formats/mario.md),
 
 ## Sharing and publication
 
-No screenshot or extracted asset is bundled in Git. Captures contain
-Nintendo-derived imagery and belong in ignored `.cache/`, `extracted/` or
-`traces/`, not source fixtures or README attachments. Generate your own image
-locally. Hosting imagery publicly is a separate publication/rights decision;
-this command does not upload, publish, add a remote or create a release.
+The [README showcase screenshot](images/showcase.png) is the sole bundled image:
+a 1920 × 1080 Linux/Vulkan capture of this preset, clearly labelled as derived
+work containing Nintendo-owned imagery. It is not an authored test fixture and
+is not covered by the project's code licenses. No extracted assets are bundled.
+Other captures belong in ignored `.cache/`, `extracted/` or `traces/` directories.
+Hosting imagery publicly is a separate publication/rights decision; the capture
+command does not upload, publish, add a remote or create a release.
 
 Before sharing source, run the [publication checks](../CONTRIBUTING.md), including
 reachable-history scanning. Logs can contain local paths and adapter information;

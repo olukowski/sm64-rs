@@ -41,7 +41,8 @@ python3 scripts/check_publication.py --history
 The publication guard checks **tracked worktree files**, including unstaged edits,
 not untracked/ignored output. Stage intended new source files before the final
 check so they are included. It rejects private/generated paths, prohibited
-artifact extensions, binary/non-UTF-8 contents, workstation profile paths and
+artifact extensions, binary/non-UTF-8 contents (except the explicitly allowlisted
+`docs/images/showcase.png` documentation image), workstation profile paths and
 obvious credential signatures. Authored JSON examples are explicitly permitted;
 it cannot infer their provenance. `--history` additionally checks file names and
 blob contents in all reachable commit trees, including deleted files. Neither
@@ -68,5 +69,7 @@ emulator. Keep resulting data local. Report reproducible commands, metadata and
 limitations rather than including captured game data in a contribution.
 
 The [static showcase](docs/showcase.md) can also be checked privately with a GPU.
-Its `--shot` path needs no window/display server. Keep all generated PNGs and
-logs ignored; no original-game screenshot is an authored regression fixture.
+Its `--shot` path needs no window/display server. Keep generated PNGs and logs
+ignored, except clearly labelled showcase screenshots approved for documentation.
+The publication guard allows only `docs/images/showcase.png`; additions require
+explicit review. No game-derived screenshot is an authored regression fixture.

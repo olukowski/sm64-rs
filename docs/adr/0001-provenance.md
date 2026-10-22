@@ -5,7 +5,8 @@ Status: accepted
 ## Decision
 
 1. Content comes from a user-supplied ROM, opened read-only. Never acquire ROMs
-   or commit game-derived files.
+   or commit game-derived files, except clearly labelled showcase screenshots
+   used in documentation (currently `docs/images/showcase.png`).
 2. Prefer parsing data in place. Deterministic extraction tools may write to
    ignored local output directories; generated data is not source code.
 3. Reverse engineering and documented community research inform understanding.

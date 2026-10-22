@@ -7,8 +7,13 @@ Rust. **This is not an emulator, and the viewer is not playable yet.**
 The current showcase renders **Mario in a static idle pose inside textured Bob-omb
 Battlefield**, with the ROM's ocean sky, a composed camera and approximate
 lighting/fog. A separate, narrow headless movement slice has been compared against
-original-game observations. No ROMs, Nintendo code, extracted assets, screenshots
-or captured game states are distributed.
+original-game observations. No ROMs, Nintendo code, extracted assets or captured
+game states are distributed.
+
+[![Static Mario showcase in Bob-omb Battlefield](docs/images/showcase.png)](docs/images/showcase.png)
+
+*Showcase screenshot — derived work containing Nintendo-owned game imagery,
+not covered by the project's code licenses. Static scene, not playable gameplay.*
 
 ## Quick start
 
@@ -50,7 +55,8 @@ cargo run -p sm64-viewer -- --rom /path/to/your/rom.z64 --showcase \
 This renders a **1920 × 1080 PNG without creating a window**, then exits. It needs
 a working GPU/driver but no display server. Choose another size with `--width` /
 `--height`; use a **new PNG path** each time. Existing files are never overwritten.
-Generated imagery and logs stay in ignored local directories, not Git.
+Generated imagery and logs stay in ignored local directories, except for the
+explicitly labelled showcase screenshot above.
 
 See the [showcase guide](docs/showcase.md) for custom cameras, capture guarantees,
 reproducibility checks and presentation limitations. No image is uploaded or
