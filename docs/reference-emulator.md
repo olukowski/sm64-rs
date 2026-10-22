@@ -112,6 +112,10 @@ The movement diagnostics also use MarioState intended magnitude/yaw `0x20/24`,
 wall/floor pointers `0x60/68`, ceiling/floor height `0x6c/70`, Controller processed
 stick floats `0x04/08/0c`, and Surface type/vertices/normal `0x00/0x0a/0x1c`.
 They corroborate the explicit flat-lane contract, not arbitrary collision behavior.
+Scene diagnostics use `gCurrLevelNum` at `0x8032ddf8`, `gCurrAreaIndex` at
+`0x8033baca`, and `gCurrActNum` at `0x8033bac8` (signed halfwords from the pinned
+STROOP map). They identify observed level/area/act; they are not a full scene or
+save-state schema and do not extend Trace v1.
 Additional conservative envelope checks read water level `0x76`, held/ridden object
 pointers `0x7c/84`, squish timer `0xb4`, and quicksand depth `0xc0`. The
 `movement_check` exporter validates the full capture chain and selected environment
@@ -123,6 +127,16 @@ and controller polls, exact observed-state continuity, game-visible input matchi
 the applied schedule, and pressed-button edges matching previous raw input.
 It preserves the previous input when slicing. VI counters are diagnostic only.
 No relationship between VIs, rendered images and game updates is assumed.
+
+For a later course, `--record-from-poll N` still executes every boot/menu input,
+with empty private saves and no state writes, but excludes action calls until the
+**controller-poll count** reaches N (the raw sample at that point has index N−1).
+`--updates` then counts recorded calls only. This is an explicit recording gate,
+not a way to bless discontinuous observations: the exporter still validates the
+entire recorded chain, including its actual scheduled predecessor. Choose a gate
+after loading/warps; a selected trace must not cross a scene initialization.
+The report records the gate. A successful post-gate trace does not validate
+unrecorded boot actions or native course initialization.
 
 Runtime corroboration: the authored sequence produced neutral, movement, braking,
 vertical jump/landing and terrain-height changes; raw sticks/buttons and pressed

@@ -170,6 +170,10 @@ def diagnostics(core, pointer):
             "action_timer": int(core.lib.DebugMemRead16(pointer + 0x1A)),
             "global_state_pointer": core.u32(0x8032D93C),
             "global_timer": core.u32(0x8032D5D4),
+            # STROOP's pinned US map: scene identity, not native initialization.
+            "level_num": core.i16(0x8032DDF8),
+            "area_index": core.i16(0x8033BACA),
+            "act_num": core.i16(0x8033BAC8),
             "dialog_id": core.i16(0x80331484),
             "dialog_box_state_byte": int(core.lib.DebugMemRead8(0x80331470)),
             "button_pressed": int(core.lib.DebugMemRead16(core.u32(pointer + 0x9C) + 0x12))}
@@ -253,6 +257,9 @@ def worker(args):
     def update(pc):
         nonlocal pending
         if pc == args.entry:
+            if counts["controller_polls"] < args.record_from_poll:
+                core.resume()
+                return
             if pending is not None:
                 raise ValueError("nested entry: chosen boundary is not one update per call")
             counts["entries"] += 1
@@ -302,6 +309,7 @@ def worker(args):
     report = {
         "version": 1, "status": "exploratory_boundary_probe_not_validated_game_trace",
         "rom_sha256": US_SHA256, "entry": args.entry, "counts": counts,
+        "record_from_poll": args.record_from_poll,
         "input_schedule": [{"end_poll": end, "input": raw} for end, raw in segments],
         "emulator": manifest, "input_events": events, "observations": snapshots,
         "warnings": logs,
@@ -335,6 +343,8 @@ def main():
     parser.add_argument("--entry", type=lambda v: int(v, 0), help="exploratory entry breakpoint; a0 is used only without --state-address")
     parser.add_argument("--state-address", type=lambda v: int(v, 0), help="explicit candidate MarioState address when entry does not take a0")
     parser.add_argument("--updates", type=int, default=120)
+    parser.add_argument("--record-from-poll", type=int, default=0,
+                        help="record action calls only once the controller-poll count reaches this value; boot inputs still run")
     parser.add_argument("--max-vis", type=int, default=4000)
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--export-trace", action="store_true", help="export Trace v1 only for the checked US0 action profile")
@@ -354,6 +364,10 @@ def main():
             raise ValueError("trace export requires the documented US0 action profile")
         if args.export_trace and (not args.scenario.strip() or not 0 <= args.trace_start < args.updates):
             raise ValueError("trace export needs a nonblank scenario and valid start update")
+        if not 0 <= args.record_from_poll <= 100000:
+            raise ValueError("record-from-poll must be in 0..100000")
+        if args.record_from_poll and args.entry is None:
+            raise ValueError("record-from-poll requires an action entry")
         if not 1 <= args.updates <= 10000 or not 1 <= args.max_vis <= 100000 or not 1 <= args.timeout <= 600:
             raise ValueError("invalid update/VI/time bound")
         if args.entry is not None and (not ram_address(args.entry, 4) or args.entry % 4):
@@ -379,7 +393,8 @@ def main():
                        "SDL_VIDEODRIVER": "offscreen", "SDL_AUDIODRIVER": "dummy"}
         command = [sys.executable, str(Path(__file__).resolve()), "--worker", "--manifest", str(args.manifest),
                    "--rom", str(args.rom), "--out", str(args.out), "--updates", str(args.updates),
-                   "--max-vis", str(args.max_vis), "--timeout", str(args.timeout)]
+                   "--max-vis", str(args.max_vis), "--timeout", str(args.timeout),
+                   "--record-from-poll", str(args.record_from_poll)]
         if args.export_trace:
             command += ["--export-trace", "--trace-start", str(args.trace_start), "--scenario", args.scenario]
         if args.screenshot:

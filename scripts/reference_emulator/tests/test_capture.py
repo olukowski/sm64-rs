@@ -1,4 +1,5 @@
 """Authored, ROM-/GPU-/emulator-free capture-tool tests."""
+import argparse
 import contextlib
 import copy
 import hashlib
@@ -7,7 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from scripts.reference_emulator import capture, core, setup
 
@@ -141,6 +142,9 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(data["floor"]["normal"], [8220.0, 8224.0, 8228.0])
         self.assertEqual(data["processed_stick"], [12292.0, 12296.0, 12300.0])
         self.assertEqual(data["floor_height"], 4208.0)
+        self.assertEqual(data["level_num"], 0x5DF8)
+        self.assertEqual(data["area_index"], 0x3ACA)
+        self.assertEqual(data["act_num"], 0x3AC8)
         memory.floor = 0
         self.assertIsNone(capture.diagnostics(memory, 0x80001000)["floor"])
         memory.controller = 0
@@ -148,6 +152,44 @@ class CaptureTests(unittest.TestCase):
             capture.diagnostics(memory, 0x80001000)
         with self.assertRaisesRegex(ValueError, "state pointer"):
             capture.diagnostics(memory, 0)
+
+    def test_recording_gate_keeps_boot_input_but_excludes_earlier_calls(self):
+        instance = Mock()
+        callbacks = {}
+        def bind(initialize, update, vi, poll):
+            callbacks.update(initialize=initialize, update=update, vi=vi, poll=poll)
+        instance.callbacks.side_effect = bind
+        instance.register.return_value = 0x80240000
+        def execute():
+            callbacks["initialize"]()
+            for poll in range(4):
+                callbacks["poll"](poll)
+                callbacks["vi"]()
+                callbacks["update"](0x80254830)
+                if poll >= 2:
+                    callbacks["update"](0x80240000)
+        instance.execute.side_effect = execute
+        manifest = dict(artifacts={name: dict(path="unused") for name in ("core", "rsp", "input", "video")},
+                        data_files={})
+        args = argparse.Namespace(out=self.root, manifest=self.root / "unused.json",
+                                  rom=self.root / "unused.rom", schedule=None, entry=0x80254830,
+                                  state_address=0x8033B170, record_from_poll=3, updates=2,
+                                  max_vis=20, timeout=10, screenshot=False, export_trace=False)
+        with patch.object(capture, "checked_manifest", return_value=manifest), \
+             patch.object(capture, "rom_bytes", return_value=b""), \
+             patch.object(capture.resource, "setrlimit"), \
+             patch.object(capture.api, "Core", return_value=instance), \
+             patch.object(capture, "state", return_value={"synthetic": True}), \
+             patch.object(capture, "diagnostics", return_value={"synthetic": True}), \
+             patch.object(capture, "controller", return_value=dict(buttons=0, stick_x=0, stick_y=0)):
+            capture.worker(args)
+        report = capture.json_read(self.root / "probe.json")
+        self.assertEqual(report["record_from_poll"], 3)
+        self.assertEqual(report["counts"], dict(vi=4, entries=2, returns=2, controller_polls=4))
+        self.assertEqual([o["entry_poll"] for o in report["observations"]], [3, 4])
+        self.assertEqual(instance.bridge.CaptureSetInput.call_count, 4)
+        instance.stop.assert_called_once()
+        instance.close.assert_called_once()
 
     def test_callback_errors_are_not_silently_ignored_by_ctypes(self):
         calls = []
