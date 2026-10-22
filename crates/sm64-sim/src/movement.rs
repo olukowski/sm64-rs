@@ -17,6 +17,7 @@ pub const WALKING: u32 = 0x0400_0440;
 pub const BRAKING: u32 = 0x0400_0445;
 pub const BRAKING_STOP: u32 = 0x0c00_023d;
 pub const MAX_IDLE_TICKS: u8 = 5;
+pub const MIN_WALK_TICKS: u8 = 10;
 pub const MAX_WALK_TICKS: u8 = 30;
 
 /// A caller-asserted safe region, NOT extracted terrain or a collision solver.
@@ -64,7 +65,7 @@ enum Phase {
     Complete,
 }
 
-/// One sequence: up to five idle ticks, 1..=30 full-forward ticks, then
+/// One sequence: up to five idle ticks, 10..=30 full-forward ticks, then
 /// neutral braking through the first BRAKING_STOP observation. Construct a new
 /// model at idle/rest for each run; this is not a hidden-state restore API.
 #[derive(Debug, Clone)]
@@ -139,7 +140,14 @@ impl FlatWalk {
                 state.forward_velocity = 8.0;
                 self.phase = Phase::Walking;
             }
-            Phase::Walking if !forward => self.phase = Phase::Braking,
+            Phase::Walking if !forward => {
+                if self.walk_ticks < MIN_WALK_TICKS {
+                    return Err(unsupported(
+                        "low-speed release uses unsupported deceleration; hold at least ten ticks",
+                    ));
+                }
+                self.phase = Phase::Braking;
+            }
             Phase::Braking if forward => {
                 return Err(unsupported("resuming during braking is unsupported"));
             }
@@ -268,7 +276,7 @@ impl Scenario {
                 producer: "sm64-rs bounded flat-walk model".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
                 settings: format!(
-                    "Caller-asserted flat lane {:?}; fixed -Z; raw neutral/(0,80); no buttons; max 5 idle/30 walking ticks; stop animation not simulated",
+                    "Caller-asserted flat lane {:?}; fixed -Z; raw neutral/(0,80); no buttons; max 5 idle ticks, 10..=30 walking ticks; low-speed release and stop animation not simulated",
                     self.lane
                 ),
                 initialization: self.initialization.clone(),

@@ -6,7 +6,7 @@
 short US revision 0 sequence:
 
 1. Rest in **idle**, with up to five neutral ticks.
-2. Apply raw stick **(0, 80)** for **1–30 ticks**, facing binary yaw `-32768`
+2. Apply raw stick **(0, 80)** for **10–30 ticks**, facing binary yaw `-32768`
    (straight along -Z).
 3. Release to neutral; brake until the **first braking-stop observation**.
 
@@ -15,6 +15,8 @@ first stop; it deliberately refuses another tick. It does **not** simulate the
 stop animation, return-to-idle timing, sleep timers, turning, variable stick
 strength, resuming during braking, jumping, slopes, walls, water, objects or camera.
 The five/30-tick budgets bound this experiment's evidence, not game rules.
+Releasing before ten walking ticks is explicitly unsupported: low-speed release
+uses a different deceleration action, not this slice's braking action.
 
 The viewer is still a static terrain viewer. This milestone is headless native
 movement, not a playable game or a general collision implementation.
@@ -89,8 +91,8 @@ single-addition model. No hardware timing or cross-platform bit-exactness claim
 is made. Out-of-envelope inputs fail instead of invoking a generic substitute.
 
 Capture diagnostics additionally record floor type/normal/vertices/height,
-ceiling height, wall pointer, processed stick, intended magnitude/yaw, and
-selected action/dialog state. All such game-derived output remains ignored.
+ceiling/water height, wall/held/ridden object pointers, squish/quicksand state,
+processed stick, intended magnitude/yaw, and selected action/dialog state. All such game-derived output remains ignored.
 A post-update intended magnitude of 32 and yaw `-32768` corroborates the full
 forward input in this scenario; general stick processing and camera math are
 **not** implemented by recognizing just this one raw input.
@@ -106,7 +108,12 @@ collision queries are mixed into the test.
 All **42 transitions**, their initial observation and previous input matched
 between both reference runs and a separately executed native scenario, using the
 Rust comparator's **exact f32 bits** policy for every declared float, and exact
-inputs/yaw/action. No tolerance was used. The native run consumed only an explicit
+inputs/yaw/action. No tolerance was used. Additional independent cold boots tested
+**every integer hold duration from 10 through 30 ticks**: 21 cases and 653
+transitions. Each native sequence matched all observations through its first stop
+exactly. One- and nine-tick release probes
+exposed a different low-speed deceleration action, now rejected rather than
+misrepresented as braking. The native run consumed only an explicit
 initial rest observation, flat-lane assertion and authored input segments—not
 reference post-states, a ROM, or emulator state. This validates that initialized
 slice; it does not validate native boot/intro or hidden full-game state.
@@ -127,8 +134,29 @@ Keep the explicitly initialized native scenario under `.cache/` as well. Use the
 synthetic example's schema, neutral previous input, the observed protocol boundary
 strings, and the independently corroborated initial idle/rest state and safe lane.
 Do not commit actual captured initialization, terrain vertices or output traces.
-Run it through `movement run`, then compare with `trace compare`. Changing a
-reference field, native input, or model arithmetic must produce a divergence or
+Validate that the private reference actually satisfies the declared envelope,
+then run the native model independently and compare:
+
+```sh
+python3 -m scripts.reference_emulator.movement_check \
+  --probe .cache/emulator/flat-a/probe.json \
+  --scenario .cache/flat-native-scenario.json --out .cache/flat-a-checked
+cargo run -p sm64x -- movement run .cache/flat-native-scenario.json \
+  > .cache/flat-native.json
+cargo run -p sm64x -- trace compare \
+  .cache/flat-a-checked/trace.json .cache/flat-native.json --json
+```
+
+The envelope checker verifies the full capture chain/schedule, actual predecessor,
+one-time initial-state bits, input protocol, and each selected before/after
+environment. It conservatively requires the entire lane rectangle inside every
+observed ordinary horizontal floor triangle, no wall/dialog/held/ridden/squish/
+quicksand condition, ceiling clearance of at least 1,000 units, and water more than
+160 units below the floor. Those clearance limits are safety assertions, not
+original game rules. It does **not** calculate native output states, validate
+capture authenticity, or prove the absence of all possible interactions.
+
+Changing a reference field, native input, or model arithmetic must produce a divergence or
 explicit unsupported-case error—not silently adjust the native run.
 
 Authored ROM-free tests cover every supported hold duration, state/input/phase

@@ -3,8 +3,8 @@ use sm64_sim::{
     MarioState, Runner,
     input::ControllerInput,
     movement::{
-        BRAKING, BRAKING_STOP, FlatLane, FlatWalk, IDLE, MAX_IDLE_TICKS, MAX_WALK_TICKS, Scenario,
-        Segment, WALKING,
+        BRAKING, BRAKING_STOP, FlatLane, FlatWalk, IDLE, MAX_IDLE_TICKS, MAX_WALK_TICKS,
+        MIN_WALK_TICKS, Scenario, Segment, WALKING,
     },
 };
 
@@ -38,7 +38,7 @@ fn runner() -> Runner<FlatWalk> {
 
 #[test]
 fn idle_walk_release_stops_for_each_supported_hold_length() {
-    for held in 1..=MAX_WALK_TICKS {
+    for held in MIN_WALK_TICKS..=MAX_WALK_TICKS {
         let mut r = runner();
         for _ in 0..MAX_IDLE_TICKS {
             r.step(ControllerInput::default()).unwrap();
@@ -158,6 +158,29 @@ fn limits_stop_animation_and_braking_resume_fail_explicitly() {
     let last = *r.state();
     assert!(r.step(ControllerInput::default()).is_err());
     assert_eq!(r.state(), &last);
+}
+
+#[test]
+fn low_speed_release_is_unsupported_and_does_not_advance_phase() {
+    for held in 1..MIN_WALK_TICKS {
+        let mut r = runner();
+        for _ in 0..held {
+            r.step(forward()).unwrap();
+        }
+        let state = *r.state();
+        assert!(
+            r.step(ControllerInput::default())
+                .unwrap_err()
+                .to_string()
+                .contains("low-speed release")
+        );
+        assert_eq!(r.state(), &state);
+        assert_eq!(r.tick(), u64::from(held));
+        // Failed early release must not enter braking; continuing the supported
+        // walking prefix still works.
+        r.step(forward()).unwrap();
+        assert_eq!(r.state().action, WALKING);
+    }
 }
 
 #[test]

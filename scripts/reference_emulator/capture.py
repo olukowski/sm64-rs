@@ -156,6 +156,11 @@ def diagnostics(core, pointer):
                    "vertices": [[core.i16(floor + 0x0A + 6*i + 2*j)
                                  for j in range(3)] for i in range(3)]}
     return {"floor": surface, "floor_height": core.f32(pointer + 0x70),
+            "water_level": core.i16(pointer + 0x76),
+            "quicksand_depth": core.f32(pointer + 0xC0),
+            "held_object": core.u32(pointer + 0x7C),
+            "ridden_object": core.u32(pointer + 0x84),
+            "squish_timer": int(core.lib.DebugMemRead8(pointer + 0xB4)),
             "ceiling_height": core.f32(pointer + 0x6C),
             "wall": core.u32(pointer + 0x60),
             "intended_magnitude": core.f32(pointer + 0x20),

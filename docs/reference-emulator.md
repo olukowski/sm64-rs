@@ -112,6 +112,10 @@ The movement diagnostics also use MarioState intended magnitude/yaw `0x20/24`,
 wall/floor pointers `0x60/68`, ceiling/floor height `0x6c/70`, Controller processed
 stick floats `0x04/08/0c`, and Surface type/vertices/normal `0x00/0x0a/0x1c`.
 They corroborate the explicit flat-lane contract, not arbitrary collision behavior.
+Additional conservative envelope checks read water level `0x76`, held/ridden object
+pointers `0x7c/84`, squish timer `0xb4`, and quicksand depth `0xc0`. The
+`movement_check` exporter validates the full capture chain and selected environment
+without generating native states; see the movement reproduction commands.
 
 Export checks the **entire** captured stream: paired calls, stable state/caller
 addresses, unchanged timer/input poll during each call, consecutive global timer
