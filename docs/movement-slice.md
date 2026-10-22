@@ -6,17 +6,21 @@
 short US revision 0 sequence:
 
 1. Rest in **idle**, with up to five neutral ticks.
-2. Apply raw stick **(0, 80)** for **10–30 ticks**, facing binary yaw `-32768`
+2. Apply raw stick **(0, 80)** for **1–30 ticks**, facing binary yaw `-32768`
    (straight along -Z).
-3. Release to neutral; brake until the **first braking-stop observation**.
+3. Release to neutral until the **first zero-speed observation**: short holds
+   (1–9 ticks) decelerate directly to idle; holds of 10–30 ticks brake to
+   braking-stop.
 
 No buttons are supported. The model starts at idle/rest and finishes at that
-first stop; it deliberately refuses another tick. It does **not** simulate the
-stop animation, return-to-idle timing, sleep timers, turning, variable stick
+first stop; it deliberately refuses another tick, even when that stop is idle.
+It does **not** simulate the braking-stop animation or its return-to-idle timing,
+sleep timers, turning, variable stick
 strength, resuming during braking, jumping, slopes, walls, water, objects or camera.
 The five/30-tick budgets bound this experiment's evidence, not game rules.
-Releasing before ten walking ticks is explicitly unsupported: low-speed release
-uses a different deceleration action, not this slice's braking action.
+Low-speed release uses action `0x0400044a`, distinct from braking
+`0x04000445`. The implementation selects these branches only by the supported
+hold duration; a general speed threshold is not established by this experiment.
 
 The viewer is still a static terrain viewer. This milestone is headless native
 movement, not a playable game or a general collision implementation.
@@ -78,8 +82,11 @@ supported observations are reproduced by this recurrence:
 
 - Entering walking starts from forward speed 8 and accelerates in that same tick.
 - Walking: `v = f32(v + f32(1.1_f32 - f32(v / 43_f32)))`.
-- Neutral braking subtracts 4 per tick, clamped to zero. Release changes the
-  action and brakes in the **same** tick. Reaching zero emits braking-stop.
+- Neutral release after 1–9 walking ticks subtracts 1 per tick, clamped to zero;
+  its first zero-speed observation returns directly to idle.
+- Neutral release after 10–30 walking ticks subtracts 4 per tick, clamped to zero;
+  its first zero-speed observation emits braking-stop.
+- Both release branches change action and decelerate in the **same** tick.
 - Velocity is `[+0, +0, -v]`, including **negative zero** at rest.
 - Position is advanced with **four separately rounded f32 quarter-additions**,
   not one full addition. Y remains the asserted floor height.
@@ -105,15 +112,20 @@ starts after 1,957 action calls: five neutral ticks, 30 walking ticks, then seve
 braking ticks through the first stop. This is castle ground, **not BOB**; no BOB
 collision queries are mixed into the test.
 
-All **42 transitions**, their initial observation and previous input matched
+For the original 30-tick case, all **42 transitions**, their initial observation and previous input matched
 between both reference runs and a separately executed native scenario, using the
 Rust comparator's **exact f32 bits** policy for every declared float, and exact
 inputs/yaw/action. No tolerance was used. Additional independent cold boots tested
 **every integer hold duration from 10 through 30 ticks**: 21 cases and 653
 transitions. Each native sequence matched all observations through its first stop
-exactly. One- and nine-tick release probes
-exposed a different low-speed deceleration action, now rejected rather than
-misrepresented as braking. The native run consumed only an explicit
+exactly. The short-release extension independently repeated **every integer
+hold from 1 through 9 ticks**, twice each, from empty-save cold boots. Each sweep
+covered **204 transitions** including five initial idle ticks per case; both
+reference sweeps and native execution matched every observed field bit-for-bit
+through the first zero-speed idle observation. Release-to-stop durations were
+9, 10, 11, 12, 13, 14, 14, 15 and 16 ticks respectively. This corroborates the
+bounded short-release branch, not arbitrary release speeds or stop animations.
+The native run consumed only an explicit
 initial rest observation, flat-lane assertion and authored input segments—not
 reference post-states, a ROM, or emulator state. This validates that initialized
 slice; it does not validate native boot/intro or hidden full-game state.
@@ -129,6 +141,15 @@ python3 -m scripts.reference_emulator.capture \
   --export-trace --trace-start 1957 --scenario flat-straight-v1
 # Repeat into .cache/emulator/flat-b, then compare both trace.json files.
 ```
+
+For short-release probes, use a private copy of the same authored input
+schedule, change its first 30-poll forward segment to the selected hold (1–9),
+and leave enough neutral input afterward. Use `--record-from-poll 2300
+--updates 35 --max-vis 5300` without `--export-trace`: the checker selects the
+complete movement window from that recorded chain. Declare five idle ticks,
+the chosen hold, and its explicitly investigated release duration in the native
+scenario. Repeat each cold boot into a new directory. Do not choose per-tick
+native states from the reference output.
 
 Keep the explicitly initialized native scenario under `.cache/` as well. Use the
 synthetic example's schema, neutral previous input, the observed protocol boundary

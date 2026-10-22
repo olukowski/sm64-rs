@@ -12,6 +12,7 @@ from pathlib import Path
 from . import capture, setup, trace_export as export
 
 IDLE, WALKING, BRAKING, STOP = 0x0C400201, 0x04000440, 0x04000445, 0x0C00023D
+DECELERATING = 0x0400044A
 NEUTRAL = {"buttons": 0, "stick_x": 0, "stick_y": 0}
 FORWARD = {**NEUTRAL, "stick_y": 80}
 
@@ -40,7 +41,7 @@ def check_environment(state, extra, raw, lane, *, after):
     require(lane["min_x"] <= x <= lane["max_x"] and
             lane["min_z"] <= z <= lane["max_z"] and y == lane["height"], "position outside lane")
     require(state["face_yaw"] == -32768, "unsupported observed yaw")
-    require(state["action"] in (IDLE, WALKING, BRAKING, STOP), "unsupported observed action")
+    require(state["action"] in (IDLE, WALKING, DECELERATING, BRAKING, STOP), "unsupported observed action")
     floor = extra["floor"]
     require(isinstance(floor, dict) and type(floor["type"]) is int and floor["type"] == 0,
             "not an ordinary floor")
@@ -138,7 +139,9 @@ def validate(probe, scenario):
         require(segment["input"] in (NEUTRAL, FORWARD), "unsupported raw input")
         inputs.extend([segment["input"]] * ticks)
     require(len(inputs) <= 43, "too many ticks")
-    require(10 <= inputs.count(FORWARD) <= 30, "forward hold must be 10..30 ticks")
+    require(1 <= inputs.count(FORWARD) <= 30, "forward hold must be 1..30 ticks")
+    short = inputs.count(FORWARD) < 10
+    release_action, stop_action = (DECELERATING, IDLE) if short else (BRAKING, STOP)
     export._input(scenario["previous_input"])
     require(scenario["previous_input"] == NEUTRAL, "previous input must be neutral")
     starts = [i for i, obs in enumerate(observations) if obs["extra_before"]["global_timer"] == scenario["start_tick"]]
@@ -156,7 +159,7 @@ def validate(probe, scenario):
     phase, idle, walking = "idle", 0, 0
     for index, (obs, raw) in enumerate(zip(observations[start:start + len(inputs)], inputs)):
         require(obs["input"] == raw, "scenario input mismatch")
-        before_action = {"idle": IDLE, "walk": WALKING, "brake": BRAKING}.get(phase)
+        before_action = {"idle": IDLE, "walk": WALKING, "release": release_action}.get(phase)
         require(obs["before"]["action"] == before_action, "observed action phase mismatch")
         if raw == FORWARD:
             require(phase in ("idle", "walk"), "resumed walking")
@@ -167,13 +170,15 @@ def validate(probe, scenario):
             idle += 1
             allowed = (IDLE,)
         else:
-            phase = "brake"
-            allowed = (STOP,) if index == len(inputs) - 1 else (BRAKING,)
+            phase = "release"
+            allowed = (stop_action,) if index == len(inputs) - 1 else (release_action,)
         require(idle <= 5 and walking <= 30 and obs["after"]["action"] in allowed,
                 "unsupported phase/action budget")
         for boundary in ("before", "after"):
             check_environment(obs[boundary], obs["extra_" + boundary], raw, lane, after=boundary == "after")
-    require(walking >= 10 and trace["frames"][-1]["state"]["action"] == STOP, "incomplete braking sequence")
+    final = trace["frames"][-1]["state"]
+    require(phase == "release" and walking >= 1 and final["action"] == stop_action and
+            final["forward_velocity"] == 0, "incomplete release sequence")
     settings = json.loads(trace["manifest"]["settings"])
     settings["movement_envelope"] = {
         "lane": lane, "assertions": "Every selected before/after: ordinary horizontal triangle contains whole rectangle; no walls, interactions, squish, quicksand; ceiling clearance >=1000; water < height-160. Conservative safety bounds, not game rules.",

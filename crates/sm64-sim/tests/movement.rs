@@ -3,8 +3,8 @@ use sm64_sim::{
     MarioState, Runner,
     input::ControllerInput,
     movement::{
-        BRAKING, BRAKING_STOP, FlatLane, FlatWalk, IDLE, MAX_IDLE_TICKS, MAX_WALK_TICKS,
-        MIN_WALK_TICKS, Scenario, Segment, WALKING,
+        BRAKING, BRAKING_STOP, DECELERATING, FlatLane, FlatWalk, IDLE, MAX_IDLE_TICKS,
+        MAX_WALK_TICKS, MIN_BRAKING_WALK_TICKS, MIN_WALK_TICKS, Scenario, Segment, WALKING,
     },
 };
 
@@ -38,6 +38,9 @@ fn runner() -> Runner<FlatWalk> {
 
 #[test]
 fn idle_walk_release_stops_for_each_supported_hold_length() {
+    assert_eq!(MIN_WALK_TICKS, 1);
+    assert_eq!(MAX_WALK_TICKS, 30);
+    let mut short_durations = std::collections::BTreeSet::new();
     for held in MIN_WALK_TICKS..=MAX_WALK_TICKS {
         let mut r = runner();
         for _ in 0..MAX_IDLE_TICKS {
@@ -56,22 +59,51 @@ fn idle_walk_release_stops_for_each_supported_hold_length() {
             assert_eq!(r.state().forward_velocity.to_bits(), speed.to_bits());
             assert_eq!(r.state().position, [17.0, 12.0, z]);
         }
-        for brake in 0..8 {
-            let old_z = r.state().position[2];
-            let old_speed = r.state().forward_velocity;
-            r.step(ControllerInput::default()).unwrap();
-            assert_eq!(r.state().forward_velocity, (old_speed - 4.0).max(0.0));
-            assert!(r.state().position[2] <= old_z);
-            if r.state().action == BRAKING_STOP {
-                break;
-            }
-            assert_eq!(r.state().action, BRAKING);
-            assert!(brake < 7);
+        let short = held < MIN_BRAKING_WALK_TICKS;
+        let decrement = if short { 1.0_f32 } else { 4.0_f32 };
+        let duration = (speed / decrement).ceil() as u8;
+        if short {
+            short_durations.insert(duration);
         }
-        assert_eq!(r.state().action, BRAKING_STOP);
+        let stop_action = if short { IDLE } else { BRAKING_STOP };
+        for release_tick in 1..=duration {
+            speed = (speed - decrement).max(0.0);
+            for _ in 0..4 {
+                z += -speed / 4.0;
+            }
+            r.step(ControllerInput::default()).unwrap();
+            assert_eq!(r.state().forward_velocity.to_bits(), speed.to_bits());
+            assert_eq!(r.state().velocity[2].to_bits(), (-speed).to_bits());
+            assert_eq!(r.state().position[2].to_bits(), z.to_bits());
+            // The release action starts on the first neutral tick; the first
+            // zero-speed tick changes directly to the terminal action.
+            let expected = if release_tick == duration {
+                stop_action
+            } else if short {
+                DECELERATING
+            } else {
+                BRAKING
+            };
+            assert_eq!(
+                r.state().action,
+                expected,
+                "hold {held}, release {release_tick}"
+            );
+        }
+        assert_eq!(r.state().forward_velocity.to_bits(), 0.0_f32.to_bits());
         assert_eq!(r.state().velocity[2].to_bits(), (-0.0_f32).to_bits());
+        let last = *r.state();
+        let tick = r.tick();
+        for input in [ControllerInput::default(), forward()] {
+            assert!(r.step(input).is_err());
+            assert_eq!(r.state(), &last);
+            assert_eq!(r.state().velocity[2].to_bits(), (-0.0_f32).to_bits());
+            assert_eq!(r.tick(), tick);
+            assert_eq!(r.previous_input(), ControllerInput::default());
+        }
         assert!(r.into_model().complete());
     }
+    assert_eq!(short_durations, (9..=16).collect());
 }
 
 #[test]
@@ -161,25 +193,36 @@ fn limits_stop_animation_and_braking_resume_fail_explicitly() {
 }
 
 #[test]
-fn low_speed_release_is_unsupported_and_does_not_advance_phase() {
-    for held in 1..MIN_WALK_TICKS {
+fn resuming_short_deceleration_is_rejected_atomically() {
+    for held in MIN_WALK_TICKS..MIN_BRAKING_WALK_TICKS {
         let mut r = runner();
+        let mut control = runner();
         for _ in 0..held {
             r.step(forward()).unwrap();
+            control.step(forward()).unwrap();
         }
-        let state = *r.state();
-        assert!(
-            r.step(ControllerInput::default())
-                .unwrap_err()
-                .to_string()
-                .contains("low-speed release")
-        );
-        assert_eq!(r.state(), &state);
-        assert_eq!(r.tick(), u64::from(held));
-        // Failed early release must not enter braking; continuing the supported
-        // walking prefix still works.
-        r.step(forward()).unwrap();
-        assert_eq!(r.state().action, WALKING);
+        r.step(ControllerInput::default()).unwrap();
+        control.step(ControllerInput::default()).unwrap();
+        while r.state().action == DECELERATING {
+            let state = *r.state();
+            let tick = r.tick();
+            assert!(
+                r.step(forward())
+                    .unwrap_err()
+                    .to_string()
+                    .contains("resuming")
+            );
+            assert_eq!(r.state(), &state);
+            assert_eq!(r.tick(), tick);
+            assert_eq!(r.previous_input(), ControllerInput::default());
+            // Retrying neutral must preserve the hidden phase as well.
+            r.step(ControllerInput::default()).unwrap();
+            control.step(ControllerInput::default()).unwrap();
+            assert_eq!(r.state(), control.state());
+            assert_eq!(r.tick(), control.tick());
+        }
+        assert_eq!(r.state().action, IDLE);
+        assert!(r.into_model().complete());
     }
 }
 
@@ -263,4 +306,41 @@ fn native_scenario_has_explicit_provenance_and_rejects_incomplete_or_extra_ticks
     let mut bad = s;
     bad.previous_input.buttons = 1;
     assert!(bad.run().is_err());
+}
+
+#[test]
+fn short_scenarios_end_exactly_on_first_idle_and_reject_extra_updates() {
+    for held in MIN_WALK_TICKS..MIN_BRAKING_WALK_TICKS {
+        let mut speed = 8.0_f32;
+        for _ in 0..held {
+            speed += 1.1_f32 - speed / 43.0;
+        }
+        let duration = speed.ceil() as u8;
+        let mut s = scenario();
+        s.segments[0].ticks = MAX_IDLE_TICKS;
+        s.segments[1].ticks = held;
+        s.segments[2].ticks = duration;
+        let trace = s.run().unwrap();
+        assert_eq!(
+            trace.frames.len(),
+            usize::from(MAX_IDLE_TICKS + held + duration)
+        );
+        assert!(trace.frames.len() <= 30);
+        let last = trace.frames.last().unwrap();
+        assert_eq!(last.state.action, IDLE);
+        assert_eq!(last.state.forward_velocity.to_bits(), 0.0_f32.to_bits());
+        assert_eq!(last.state.velocity[2].to_bits(), (-0.0_f32).to_bits());
+        assert!(trace.manifest.settings.contains("1..=30 walking ticks"));
+        for ticks in [duration - 1, duration + 1] {
+            let mut bad = s.clone();
+            bad.segments[2].ticks = ticks;
+            assert!(bad.run().is_err());
+        }
+        // IDLE at the boundary is terminal, not permission to start a new walk.
+        s.segments.push(Segment {
+            ticks: 1,
+            input: forward(),
+        });
+        assert!(s.run().is_err());
+    }
 }

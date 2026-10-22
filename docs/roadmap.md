@@ -46,6 +46,7 @@ remain explicit, separate decisions.
 - [x] Versioned observation/input traces, caller-model replay and first-divergence comparisons (authored tests)
 - [x] Local pinned US0 reference capture adapter, initial field/boundary corroboration and repeatable movement observations
 - [x] First bounded native flat-walk model and exact original-versus-native comparison
+- [x] Short-release extension: all 1–9-tick holds independently repeated and matched through first idle
 - [ ] Expand native actions/input coverage and implement original collision resolution
 - [ ] Animation and camera integration
 

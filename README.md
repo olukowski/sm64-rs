@@ -101,7 +101,9 @@ asset directory; stored header CRCs are not recomputed checksum verification.
 
 The [movement slice](docs/movement-slice.md) implements idle → straight full-forward
 acceleration → braking to first stop in an explicitly supplied flat lane. It
-supports 10–30 forward ticks, fixed -Z yaw, neutral/(0,80) sticks and no buttons.
+supports 1–30 forward ticks and release through the first stop, fixed -Z yaw,
+neutral/(0,80) sticks and no buttons. Short holds decelerate directly to idle;
+longer holds brake to braking-stop.
 All 21 supported hold durations matched reference observations exactly; this does
 not validate general actions, terrain collision or playable viewer movement.
 

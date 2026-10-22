@@ -14,10 +14,12 @@ use crate::{Error, MarioState, Runner, TickModel};
 // US0 action identifiers: documented metadata, corroborated at 0x80254830.
 pub const IDLE: u32 = 0x0c40_0201;
 pub const WALKING: u32 = 0x0400_0440;
+pub const DECELERATING: u32 = 0x0400_044a;
 pub const BRAKING: u32 = 0x0400_0445;
 pub const BRAKING_STOP: u32 = 0x0c00_023d;
 pub const MAX_IDLE_TICKS: u8 = 5;
-pub const MIN_WALK_TICKS: u8 = 10;
+pub const MIN_WALK_TICKS: u8 = 1;
+pub const MIN_BRAKING_WALK_TICKS: u8 = 10;
 pub const MAX_WALK_TICKS: u8 = 30;
 
 /// A caller-asserted safe region, NOT extracted terrain or a collision solver.
@@ -61,13 +63,16 @@ impl FlatLane {
 enum Phase {
     Idle,
     Walking,
+    Decelerating,
     Braking,
     Complete,
 }
 
-/// One sequence: up to five idle ticks, 10..=30 full-forward ticks, then
-/// neutral braking through the first BRAKING_STOP observation. Construct a new
-/// model at idle/rest for each run; this is not a hidden-state restore API.
+/// One sequence: up to five idle ticks, 1..=30 full-forward ticks, then
+/// neutral release through the first zero-speed observation: IDLE for holds
+/// shorter than ten ticks, BRAKING_STOP otherwise. No updates after that stop
+/// are supported. Construct a new model at idle/rest for each run; this is not
+/// a hidden-state restore API.
 #[derive(Debug, Clone)]
 pub struct FlatWalk {
     lane: FlatLane,
@@ -96,10 +101,11 @@ impl FlatWalk {
         let expected_action = match self.phase {
             Phase::Idle => IDLE,
             Phase::Walking => WALKING,
+            Phase::Decelerating => DECELERATING,
             Phase::Braking => BRAKING,
             Phase::Complete => {
                 return Err(unsupported(
-                    "sequence complete; stop animation is unsupported",
+                    "sequence complete; updates after the first stop are unsupported",
                 ));
             }
         };
@@ -141,15 +147,16 @@ impl FlatWalk {
                 self.phase = Phase::Walking;
             }
             Phase::Walking if !forward => {
-                if self.walk_ticks < MIN_WALK_TICKS {
-                    return Err(unsupported(
-                        "low-speed release uses unsupported deceleration; hold at least ten ticks",
-                    ));
-                }
-                self.phase = Phase::Braking;
+                // Select only by the supported hold budget, not a generalized
+                // speed threshold outside this bounded experiment.
+                self.phase = if self.walk_ticks < MIN_BRAKING_WALK_TICKS {
+                    Phase::Decelerating
+                } else {
+                    Phase::Braking
+                };
             }
-            Phase::Braking if forward => {
-                return Err(unsupported("resuming during braking is unsupported"));
+            Phase::Decelerating | Phase::Braking if forward => {
+                return Err(unsupported("resuming during release is unsupported"));
             }
             _ => {}
         }
@@ -162,10 +169,12 @@ impl FlatWalk {
             state.forward_velocity += 1.1_f32 - drag;
             state.action = WALKING;
         } else {
-            state.forward_velocity = (state.forward_velocity - 4.0).max(0.0);
-            state.action = BRAKING;
+            let decelerating = self.phase == Phase::Decelerating;
+            let decrement = if decelerating { 1.0_f32 } else { 4.0_f32 };
+            state.forward_velocity = (state.forward_velocity - decrement).max(0.0);
+            state.action = if decelerating { DECELERATING } else { BRAKING };
             if state.forward_velocity == 0.0 {
-                state.action = BRAKING_STOP;
+                state.action = if decelerating { IDLE } else { BRAKING_STOP };
                 self.phase = Phase::Complete;
             }
         }
@@ -264,7 +273,7 @@ impl Scenario {
         }
         if !runner.into_model().complete() {
             return Err(unsupported(
-                "scenario must finish at the first braking stop",
+                "scenario must finish at the first zero-speed stop (IDLE or BRAKING_STOP)",
             ));
         }
         let trace = Trace {
@@ -276,7 +285,7 @@ impl Scenario {
                 producer: "sm64-rs bounded flat-walk model".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
                 settings: format!(
-                    "Caller-asserted flat lane {:?}; fixed -Z; raw neutral/(0,80); no buttons; max 5 idle ticks, 10..=30 walking ticks; low-speed release and stop animation not simulated",
+                    "Caller-asserted flat lane {:?}; fixed -Z; raw neutral/(0,80); no buttons; max 5 idle ticks, 1..=30 walking ticks; holds 1..=9 decelerate by 1 to IDLE, holds 10..=30 brake by 4 to BRAKING_STOP; ends at first zero-speed stop",
                     self.lane
                 ),
                 initialization: self.initialization.clone(),

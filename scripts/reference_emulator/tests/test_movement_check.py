@@ -139,7 +139,7 @@ class MovementCheckTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "actual predecessor"):
             check.validate(p, s)
 
-    def test_hold_nine_rejected_without_replaying_dynamics(self):
+    def test_short_release_requires_decelerating_then_first_idle(self):
         p, s = fixture()
         del p["observations"][1]
         for i, obs in enumerate(p["observations"]):
@@ -150,7 +150,25 @@ class MovementCheckTests(unittest.TestCase):
         p["input_schedule"][1]["end_poll"] = 10
         p["input_events"][2].update(poll=10, vi=11)
         s["segments"][0]["ticks"] = 9
+        # A short hold must not be accepted with the long-hold action chain.
         with self.assertRaises(ValueError):
+            check.validate(p, s)
+        for obs in p["observations"]:
+            for side in ("before", "after"):
+                if obs[side]["action"] == check.BRAKING:
+                    obs[side]["action"] = check.DECELERATING
+                elif obs[side]["action"] == check.STOP:
+                    obs[side]["action"] = check.IDLE
+        self.assertEqual(check.validate(p, s)["frames"][-1]["state"]["action"], check.IDLE)
+        # The checker asserts action/environment boundaries, not a speed model:
+        # these authored synthetic zero speeds deliberately are not Mario motion.
+        for action in (check.DECELERATING, check.STOP):
+            bad = copy.deepcopy(p)
+            bad["observations"][-1]["after"]["action"] = action
+            with self.assertRaises(ValueError):
+                check.validate(bad, s)
+        p["observations"][-1]["after"]["forward_velocity"] = 1
+        with self.assertRaisesRegex(ValueError, "incomplete release"):
             check.validate(p, s)
 
     def test_cli_new_ignored_output_and_read_only_inputs(self):
