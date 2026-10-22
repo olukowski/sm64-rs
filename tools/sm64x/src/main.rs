@@ -3,6 +3,7 @@
 mod collision;
 mod level;
 mod mio0;
+mod movement;
 mod trace;
 
 use std::fs::{self, OpenOptions};
@@ -45,6 +46,11 @@ enum Command {
     },
     /// Probe static geometry (diagnostic, NOT original-game collision rules).
     Collision(collision::Options),
+    /// Run the bounded headless flat-walk slice without a ROM.
+    Movement {
+        #[command(subcommand)]
+        command: movement::Command,
+    },
     /// Validate/compare observation traces without a ROM or gameplay model.
     Trace {
         #[command(subcommand)]
@@ -226,17 +232,21 @@ fn print_json(value: &impl Serialize) -> Result<()> {
 }
 
 fn run(cli: Cli) -> Result<()> {
-    if let Command::Trace { command } = cli.command {
-        return trace::run(command, cli.json);
-    }
+    let command = match cli.command {
+        Command::Trace { command } => return trace::run(command, cli.json),
+        Command::Movement { command } => return movement::run(command),
+        command => command,
+    };
     let Some(path) = cli.rom else {
         bail!("no ROM selected; pass --rom PATH or set SM64_ROM (no ROM is bundled or downloaded)");
     };
     let rom = Rom::open(&path).with_context(|| format!("could not inspect {}", path.display()))?;
-    match cli.command {
+    match command {
         Command::Info => info(&rom, cli.json),
         Command::Collision(options) => collision::run(&rom, options, cli.json),
-        Command::Trace { .. } => unreachable!("trace commands handled before ROM loading"),
+        Command::Trace { .. } | Command::Movement { .. } => {
+            unreachable!("ROM-free commands handled before ROM loading")
+        }
         Command::Level { course: _, visuals } => {
             let course = sm64_level::load_bob(&rom)?;
             level::report(&course, cli.json, visuals)
@@ -279,7 +289,7 @@ fn main() -> ExitCode {
         &cli.command,
         Command::Trace {
             command: trace::Command::Compare { .. }
-        }
+        } | Command::Movement { .. }
     );
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,

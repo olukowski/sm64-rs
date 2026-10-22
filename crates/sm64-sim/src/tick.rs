@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::Error;
 use crate::input::{ButtonTracker, ControllerInput, TickInput};
 
-/// Raw state storage, not a description of implemented gameplay.
+/// Small observation surface, not complete gameplay or save-state storage.
 /// The default action is zero, with no assigned gameplay meaning.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -15,7 +15,7 @@ pub struct MarioState {
     pub forward_velocity: f32,
     /// Signed binary angle: one full turn spans 65536 units.
     pub face_yaw: i16,
-    /// Original action bits, uninterpreted by this crate.
+    /// Original action bits; only the bounded movement model interprets a subset.
     pub action: u32,
 }
 

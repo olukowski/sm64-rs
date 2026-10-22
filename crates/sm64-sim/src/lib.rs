@@ -1,8 +1,9 @@
-//! Headless explicit-tick foundation; no gameplay or movement model is provided.
+//! Headless explicit ticks and a bounded, reference-validated flat-walk slice.
 //! Floating-point results are not promised to be bit-exact across platforms.
 
 pub mod collision;
 pub mod input;
+pub mod movement;
 pub mod reference;
 pub mod tick;
 

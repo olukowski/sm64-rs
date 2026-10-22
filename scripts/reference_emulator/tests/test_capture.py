@@ -119,6 +119,36 @@ class CaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "data file no longer"):
             capture.checked_manifest(path)
 
+    def test_diagnostics_use_declared_offsets_and_reject_invalid_controller(self):
+        class Memory:
+            def __init__(self):
+                self.floor = 0x80002000
+                self.controller = 0x80003000
+                self.lib = self
+            def u32(self, address):
+                return {0x80001068: self.floor, 0x8000109C: self.controller}.get(address, 0)
+            def i16(self, address):
+                return address & 0x7FFF
+            def f32(self, address):
+                return float(address & 0xFFFF)
+            def DebugMemRead16(self, address):
+                return address & 0xFFFF
+            def DebugMemRead8(self, address):
+                return address & 0xFF
+        memory = Memory()
+        data = capture.diagnostics(memory, 0x80001000)
+        self.assertEqual(data["floor"]["address"], memory.floor)
+        self.assertEqual(data["floor"]["normal"], [8220.0, 8224.0, 8228.0])
+        self.assertEqual(data["processed_stick"], [12292.0, 12296.0, 12300.0])
+        self.assertEqual(data["floor_height"], 4208.0)
+        memory.floor = 0
+        self.assertIsNone(capture.diagnostics(memory, 0x80001000)["floor"])
+        memory.controller = 0
+        with self.assertRaisesRegex(ValueError, "controller pointer"):
+            capture.diagnostics(memory, 0x80001000)
+        with self.assertRaisesRegex(ValueError, "state pointer"):
+            capture.diagnostics(memory, 0)
+
     def test_callback_errors_are_not_silently_ignored_by_ctypes(self):
         calls = []
         class Library:

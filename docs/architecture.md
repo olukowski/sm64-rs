@@ -2,23 +2,24 @@
 
 ```text
 sm64x                       CLI identity, extraction, course/visual/probe reports,
-                            ROM-free trace validation/comparison
+                            ROM-free trace validation/comparison and flat-walk execution
   ├── sm64-rom               canonical byte order, header and exact ROM identity
   ├── sm64-mio0              bounded MIO0 decoding
   ├── sm64-level             segments, level declarations, static collision,
   │                         model bindings and geometry-layout hierarchy
   ├── sm64-gfx               old Fast3D state → triangle batches and RGBA textures
   └── sm64-sim               explicit-tick/input/state, diagnostic probes,
-                            versioned traces and caller-model replay
+                            versioned traces, model replay and bounded flat walking
 
 sm64-viewer (Bevy)           textured static BOB terrain, diagnostic collision
                             view/edges, free camera and PNG capture
 
 sm64-sim                    engine-free explicit-tick/input/state foundation;
-                            static geometric probes (not original collision rules)
+                            static geometric probes (not original collision rules),
+                            explicit flat-lane movement experiment
 
 future gameplay models      Mario actions, original collision rules/camera,
-                            objects and progression; no movement model yet
+                            objects and progression beyond the first bounded slice
 ```
 
 All format crates are engine-free. The viewer presents parsed content; it does not
@@ -71,16 +72,18 @@ in presentation only; original collision vertices remain unchanged. Line meshes
 must not use triangle-only depth bias.
 
 Collision tails, macro/special objects, native behaviors, moving objects, original
-camera/audio/gameplay, skyboxes and native environment effects remain absent.
+camera/audio, general gameplay, skyboxes and native environment effects remain absent.
 
 ## Headless foundation
 
 `sm64-sim` advances only when explicitly stepped with caller-supplied raw input
-and a `TickModel`. There is no built-in movement model. Its static geometric
+and a `TickModel`. `movement::FlatWalk` implements the first bounded, fixed-yaw
+idle/walking/braking sequence in an explicitly asserted flat lane. Its static geometric
 queries are diagnostic primitives, not the original floor/ceiling/wall solver.
 Versioned traces compare exact float bits by default, validate protocol alignment,
 and can replay raw inputs through a caller-initialized model. CLI trace commands
-need no ROM and do not provide a fake gameplay replay model.
+need no ROM; `movement run` generates independent native traces from an explicit
+scenario rather than reading expected outputs. No general gameplay replay is offered.
 State uses original units and stays independent of Bevy and viewer transforms.
 See [simulation boundaries and evidence gate](simulation.md). Optional
 `scripts/reference_emulator/` tooling acquires a separate pinned emulator and

@@ -17,14 +17,14 @@
 - [x] Decode the texture formats/material state used by BOB and render textured static terrain
 - [x] Add a collision overlay and fixed-camera visual checks (window dimensions must match for comparisons)
 
-### Reached stopping point
+### Static-viewer milestone
 
 A textured static Bob-omb Battlefield viewer, with collision visualization still
 available for alignment checks. Verified locally: 1,101 render triangles and 18
 uploaded textures. See [validation notes](research/textured-bob.md). Start from the actual geometry-layout pointer,
 not the collision mesh: these are different assets. Native geometry callbacks,
 animated objects and unsupported commands must be reported rather than silently
-guessed. Do not expand to every course or start gameplay in this rendering batch.
+guessed. Expanding course/rendering coverage remains separate from native simulation.
 Rendering currently approximates N64 material effects; differences are labeled.
 Future rendering work may add fixed-resolution offscreen regression captures,
 more accurate combiners/lighting/filtering, skybox and generated effects.
@@ -35,13 +35,16 @@ more accurate combiners/lighting/filtering, skybox and generated effects.
 - [ ] Headless, fixed-tick Mario actions and original collision rules
 - [x] Versioned observation/input traces, caller-model replay and first-divergence comparisons (authored tests)
 - [x] Local pinned US0 reference capture adapter, initial field/boundary corroboration and repeatable movement observations
-- [ ] Native movement models and original-versus-native comparisons
+- [x] First bounded native flat-walk model and exact original-versus-native comparison
+- [ ] Expand native actions/input coverage and implement original collision resolution
 - [ ] Animation and camera integration
 
 See [simulation.md](simulation.md) for implemented boundaries and the reference
 capture contract; [local emulator notes](reference-emulator.md) document the first
 repeatable original-game observations. Mathematical probes and toy replay tests must not be
-reported as verified Mario behavior.
+reported as verified Mario behavior. The [first movement slice](movement-slice.md)
+validates idle → straight acceleration → braking to first stop on an explicitly
+verified flat lane; it is not a general controller or playable viewer.
 
 ## M3 — First playable slice
 - [ ] Objects, coins, damage/death, one earnable star

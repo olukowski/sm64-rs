@@ -2,10 +2,10 @@
 
 ## Status and boundaries
 
-`sm64-sim` is an engine-free foundation, **not implemented Mario movement**.
-It provides explicit transitions over raw state, button edges, and static geometric
-probes. No Bevy time, physics engine, render scale, wall-clock accumulator or
-implicit movement model participates. A caller must supply a `TickModel`.
+`sm64-sim` provides engine-free explicit ticks, raw state/button edges, diagnostic
+geometric probes, and a [bounded native flat-walk model](movement-slice.md).
+No Bevy time, physics engine, render scale or wall-clock accumulator participates.
+Callers explicitly select a `TickModel`; there is no implicit general controller.
 
 `MarioState` currently stores position, velocity, forward velocity, binary facing
 angle and uninterpreted action bits. This is a small observation surface, not a
@@ -86,7 +86,9 @@ Floats default to exact f32 **bit** comparison, including signed zero. An explic
 absolute tolerance is available; it must be finite/nonnegative and applies only
 to floats. Integers, binary facing angle, action and controller bits compare
 exactly. Difference reports include float bits. `reference::replay` runs a
-caller-supplied model against recorded inputs; there is no built-in gameplay model.
+caller-supplied model against recorded inputs. The bounded `movement::FlatWalk`
+model requires its explicit flat-lane/idle initialization contract; replay cannot
+restore arbitrary original-game state.
 
 ### CLI and authored example
 
@@ -105,7 +107,9 @@ A successfully reported equality exits zero; divergence, malformed traces,
 incompatible protocols and comparison report-write failures exit nonzero. Unlike
 plain inspection commands, comparisons do not suppress broken-pipe failures. Invalid traces produce diagnostics on stderr rather than a comparison
 report. Use shell redirection only into ignored local destinations for real data.
-No gameplay `replay` command is exposed while no real `TickModel` is implemented.
+`sm64x movement run SCENARIO` separately executes the native flat-walk model
+from explicit initialization and authored inputs, without consuming reference
+outputs. It emits a native Trace v1 for these comparison tools.
 
 ### Capture adapter handoff
 
@@ -128,9 +132,10 @@ Record all of the following before claiming a reference comparison:
 - At least two repeated captures from equivalent initialization whose observations
   compare bit-exactly. Then independently generate a native trace for comparison.
 
-The minimal current schema will need an explicitly versioned extension for action
-timers and other state as actual models are implemented; unknown fields are
-rejected rather than silently ignored. Its SHA-256 identifies the intended ROM,
+The minimal current schema will need an explicitly versioned extension before
+restoring action timers and other hidden state. The first movement slice stops
+before animation-dependent stop-to-idle timing and refuses arbitrary restores;
+no fields are silently added to Trace v1. Unknown fields are rejected. Its SHA-256 identifies the intended ROM,
 not the authenticity of the captured state. Disclose unverified fields and do not
 fill gaps with invented constants.
 
@@ -157,7 +162,9 @@ For authentic movement research, require a reference runner with:
 A pinned local US0 action-capture adapter and initial runtime/layout corroboration
 are now available; two independent cold boots produced bit-equal movement windows.
 See [setup, evidence and limitations](reference-emulator.md). This is not a full
-runtime-state map, hardware equivalence proof or native-model validation.
+runtime-state map or hardware equivalence proof. The [first native slice](movement-slice.md)
+now matches a bounded flat-ground sequence against repeated reference observations;
+that result does not validate the remaining actions or original collision solver.
 Do not replace missing observations with generic acceleration/gravity constants.
 Keep all game-derived captures under ignored `traces/` or `.cache/`; commit only
 capture tooling, documentation and authored synthetic tests. See

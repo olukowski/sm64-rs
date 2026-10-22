@@ -1,0 +1,243 @@
+//! Authored synthetic states/geometry only; not original-game trace fixtures.
+use sm64_sim::{
+    MarioState, Runner,
+    input::ControllerInput,
+    movement::{
+        BRAKING, BRAKING_STOP, FlatLane, FlatWalk, IDLE, MAX_IDLE_TICKS, MAX_WALK_TICKS, Scenario,
+        Segment, WALKING,
+    },
+};
+
+fn lane() -> FlatLane {
+    FlatLane {
+        min_x: -100.0,
+        max_x: 100.0,
+        min_z: -2000.0,
+        max_z: 2000.0,
+        height: 12.0,
+    }
+}
+fn initial() -> MarioState {
+    MarioState {
+        position: [17.0, 12.0, 1024.0],
+        velocity: [0.0, 0.0, -0.0],
+        face_yaw: i16::MIN,
+        action: IDLE,
+        ..Default::default()
+    }
+}
+fn forward() -> ControllerInput {
+    ControllerInput {
+        stick_y: 80,
+        ..Default::default()
+    }
+}
+fn runner() -> Runner<FlatWalk> {
+    Runner::new(initial(), FlatWalk::new(lane()).unwrap()).unwrap()
+}
+
+#[test]
+fn idle_walk_release_stops_for_each_supported_hold_length() {
+    for held in 1..=MAX_WALK_TICKS {
+        let mut r = runner();
+        for _ in 0..MAX_IDLE_TICKS {
+            r.step(ControllerInput::default()).unwrap();
+            assert_eq!(r.state(), &initial());
+        }
+        let mut speed = 8.0_f32;
+        let mut z = initial().position[2];
+        for _ in 0..held {
+            speed += 1.1_f32 - speed / 43.0;
+            for _ in 0..4 {
+                z -= speed / 4.0;
+            }
+            r.step(forward()).unwrap();
+            assert_eq!(r.state().action, WALKING);
+            assert_eq!(r.state().forward_velocity.to_bits(), speed.to_bits());
+            assert_eq!(r.state().position, [17.0, 12.0, z]);
+        }
+        for brake in 0..8 {
+            let old_z = r.state().position[2];
+            let old_speed = r.state().forward_velocity;
+            r.step(ControllerInput::default()).unwrap();
+            assert_eq!(r.state().forward_velocity, (old_speed - 4.0).max(0.0));
+            assert!(r.state().position[2] <= old_z);
+            if r.state().action == BRAKING_STOP {
+                break;
+            }
+            assert_eq!(r.state().action, BRAKING);
+            assert!(brake < 7);
+        }
+        assert_eq!(r.state().action, BRAKING_STOP);
+        assert_eq!(r.state().velocity[2].to_bits(), (-0.0_f32).to_bits());
+        assert!(r.into_model().complete());
+    }
+}
+
+#[test]
+fn displacement_retains_four_separately_rounded_quarters() {
+    let mut r = runner();
+    let mut found_rounding_difference = false;
+    for _ in 0..MAX_WALK_TICKS {
+        let before = r.state().position[2];
+        r.step(forward()).unwrap();
+        let v = r.state().velocity[2];
+        let mut quarter_result = before;
+        for _ in 0..4 {
+            quarter_result += v / 4.0;
+        }
+        assert_eq!(r.state().position[2].to_bits(), quarter_result.to_bits());
+        found_rounding_difference |= (before + v).to_bits() != quarter_result.to_bits();
+    }
+    assert!(found_rounding_difference);
+}
+
+#[test]
+fn unsupported_inputs_leave_state_input_tick_and_model_unchanged() {
+    let invalid = [
+        ControllerInput {
+            buttons: 0x8000,
+            ..Default::default()
+        },
+        ControllerInput {
+            stick_x: 1,
+            stick_y: 80,
+            ..Default::default()
+        },
+        ControllerInput {
+            stick_y: 79,
+            ..Default::default()
+        },
+        ControllerInput {
+            stick_y: -80,
+            ..Default::default()
+        },
+    ];
+    for input in invalid {
+        let mut r = runner();
+        assert!(r.step(input).is_err());
+        assert_eq!(r.state(), &initial());
+        assert_eq!(r.tick(), 0);
+        assert_eq!(r.previous_input(), ControllerInput::default());
+        r.step(forward()).unwrap();
+        let mut control = runner();
+        control.step(forward()).unwrap();
+        assert_eq!(r.state(), control.state());
+    }
+}
+
+#[test]
+fn lane_escape_is_atomic_and_can_retry_without_advancing_phase() {
+    let mut restricted = lane();
+    restricted.min_z = 1023.0;
+    let mut r = Runner::new(initial(), FlatWalk::new(restricted).unwrap()).unwrap();
+    assert!(r.step(forward()).is_err());
+    assert_eq!(r.tick(), 0);
+    assert_eq!(r.state(), &initial());
+    r.step(ControllerInput::default()).unwrap();
+    assert_eq!(r.tick(), 1);
+    assert_eq!(r.state(), &initial());
+}
+
+#[test]
+fn limits_stop_animation_and_braking_resume_fail_explicitly() {
+    let mut r = runner();
+    for _ in 0..MAX_IDLE_TICKS {
+        r.step(ControllerInput::default()).unwrap();
+    }
+    assert!(r.step(ControllerInput::default()).is_err());
+    for _ in 0..MAX_WALK_TICKS {
+        r.step(forward()).unwrap();
+    }
+    assert!(r.step(forward()).is_err());
+    r.step(ControllerInput::default()).unwrap();
+    assert!(r.step(forward()).is_err());
+    while r.state().action != BRAKING_STOP {
+        r.step(ControllerInput::default()).unwrap();
+    }
+    let last = *r.state();
+    assert!(r.step(ControllerInput::default()).is_err());
+    assert_eq!(r.state(), &last);
+}
+
+#[test]
+fn invalid_state_and_lane_are_rejected() {
+    for invalid in [f32::NAN, f32::INFINITY, 2_000_000.0] {
+        let mut l = lane();
+        l.height = invalid;
+        assert!(FlatWalk::new(l).is_err());
+    }
+    let mut l = lane();
+    l.min_x = l.max_x;
+    assert!(FlatWalk::new(l).is_err());
+    for mutation in 0..6 {
+        let mut s = initial();
+        match mutation {
+            0 => s.position[1] += 1.0,
+            1 => s.position[0] = 200.0,
+            2 => s.face_yaw = 0,
+            3 => s.action = WALKING,
+            4 => s.forward_velocity = 2.0,
+            _ => s.velocity[0] = 1.0,
+        }
+        let mut r = Runner::new(s, FlatWalk::new(lane()).unwrap()).unwrap();
+        assert!(r.step(forward()).is_err());
+        assert_eq!(r.state(), &s);
+    }
+}
+
+fn scenario() -> Scenario {
+    Scenario {
+        version: 1,
+        scenario: "authored-test".into(),
+        initialization: "Invented grounded state and empty flat lane; not a reference capture."
+            .into(),
+        input_sampling: "Raw input before each tick".into(),
+        state_boundary: "Immediately before/after each model tick".into(),
+        start_tick: 50,
+        initial_state: initial(),
+        previous_input: ControllerInput::default(),
+        lane: lane(),
+        segments: vec![
+            Segment {
+                ticks: 3,
+                input: ControllerInput::default(),
+            },
+            Segment {
+                ticks: 12,
+                input: forward(),
+            },
+            Segment {
+                ticks: 5,
+                input: ControllerInput::default(),
+            },
+        ],
+    }
+}
+
+#[test]
+fn native_scenario_has_explicit_provenance_and_rejects_incomplete_or_extra_ticks() {
+    let s = scenario();
+    let t = s.run().unwrap();
+    assert_eq!(t.manifest.source, sm64_sim::reference::Source::Native);
+    assert_eq!(t.start_tick, 50);
+    assert_eq!(t.frames.len(), 20);
+    assert_eq!(t.frames.last().unwrap().state.action, BRAKING_STOP);
+    for ticks in [0, 4, 6] {
+        let mut bad = s.clone();
+        bad.segments[2].ticks = ticks;
+        assert!(bad.run().is_err());
+    }
+    let mut bad = s.clone();
+    bad.version = 2;
+    assert!(bad.run().is_err());
+    let mut bad = s.clone();
+    bad.start_tick = u64::MAX;
+    assert!(bad.run().is_err());
+    let mut bad = s.clone();
+    bad.scenario = " ".into();
+    assert!(bad.run().is_err());
+    let mut bad = s;
+    bad.previous_input.buttons = 1;
+    assert!(bad.run().is_err());
+}

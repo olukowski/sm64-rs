@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "scenario": "authored-flat-walk",
+  "initialization": "Invented state and empty flat lane, not original-game data. Fixed yaw -32768; no interactions, water, walls, slopes or ceilings.",
+  "input_sampling": "Raw input before each explicit native tick.",
+  "state_boundary": "State immediately before/after each explicit native tick.",
+  "start_tick": 0,
+  "initial_state": {
+    "position": [
+      17,
+      12,
+      1024
+    ],
+    "velocity": [
+      0,
+      0,
+      -0.0
+    ],
+    "forward_velocity": 0,
+    "face_yaw": -32768,
+    "action": 205521409
+  },
+  "previous_input": {
+    "buttons": 0,
+    "stick_x": 0,
+    "stick_y": 0
+  },
+  "lane": {
+    "min_x": -100,
+    "max_x": 100,
+    "min_z": -2000,
+    "max_z": 2000,
+    "height": 12
+  },
+  "segments": [
+    {
+      "ticks": 3,
+      "input": {
+        "buttons": 0,
+        "stick_x": 0,
+        "stick_y": 0
+      }
+    },
+    {
+      "ticks": 12,
+      "input": {
+        "buttons": 0,
+        "stick_x": 0,
+        "stick_y": 80
+      }
+    },
+    {
+      "ticks": 5,
+      "input": {
+        "buttons": 0,
+        "stick_x": 0,
+        "stick_y": 0
+      }
+    }
+  ]
+}

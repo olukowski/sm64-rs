@@ -108,6 +108,10 @@ MarioState offsets: action `0x0c`, yaw `0x2e`, position `0x3c`, velocity `0x48`,
 forward velocity `0x54`, controller pointer `0x9c`. Controller raw signed sticks
 are at `0x00/02`, held/pressed halfwords at `0x10/12`. Diagnostic action state/timer
 and dialog fields stay in private probes, not silently added to Trace v1.
+The movement diagnostics also use MarioState intended magnitude/yaw `0x20/24`,
+wall/floor pointers `0x60/68`, ceiling/floor height `0x6c/70`, Controller processed
+stick floats `0x04/08/0c`, and Surface type/vertices/normal `0x00/0x0a/0x1c`.
+They corroborate the explicit flat-lane contract, not arbitrary collision behavior.
 
 Export checks the **entire** captured stream: paired calls, stable state/caller
 addresses, unchanged timer/input poll during each call, consecutive global timer
@@ -136,12 +140,13 @@ runtime consistency checks, not a decompiler-derived implementation.
 python3 -m unittest discover -s scripts/reference_emulator/tests -v
 ```
 
-Local checks passed: 28 synthetic Python tests, Rust formatting/Clippy, 116 normal
-Rust tests and all seven ignored ROM-dependent tests. Normal CI never acquires or
-runs the emulator.
+Synthetic Python tests, Rust formatting/Clippy, normal Rust tests and optional
+ignored ROM-dependent tests are run locally. Normal CI never acquires or runs
+the emulator; test counts grow as the tooling evolves.
 
-The next batch can use these private references to investigate a minimal movement
-slice. Still absent: native actions, original collision resolution, a full
+A [minimal native movement slice](movement-slice.md) now reproduces the flat
+idle → straight acceleration → braking-to-stop window with exact observed bits.
+Still absent: general native actions, original collision resolution, a full
 initialization/save-state schema, verified original camera, BOB gameplay capture,
 and comparisons against original hardware or independently configured emulators.
 The static mathematical probes must not be substituted for the original solver.

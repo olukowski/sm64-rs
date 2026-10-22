@@ -140,6 +140,36 @@ def ram_address(address, size=1):
     return 0x80000000 <= address and address + size <= 0x80400000
 
 
+def diagnostics(core, pointer):
+    if not ram_address(pointer, 0xC8) or pointer % 4:
+        raise ValueError("invalid diagnostic state pointer")
+    controller_address = core.u32(pointer + 0x9C)
+    if not ram_address(controller_address, 0x14) or controller_address % 4:
+        raise ValueError("invalid diagnostic controller pointer")
+    # Declaration-only offsets: pinned include/types.h linked in the docs.
+    # These diagnostics do not extend Trace v1 or claim save-state coverage.
+    floor = core.u32(pointer + 0x68)
+    surface = None
+    if ram_address(floor, 0x30) and floor % 4 == 0:
+        surface = {"address": floor, "type": core.i16(floor),
+                   "normal": [core.f32(floor + 0x1C + 4*i) for i in range(3)],
+                   "vertices": [[core.i16(floor + 0x0A + 6*i + 2*j)
+                                 for j in range(3)] for i in range(3)]}
+    return {"floor": surface, "floor_height": core.f32(pointer + 0x70),
+            "ceiling_height": core.f32(pointer + 0x6C),
+            "wall": core.u32(pointer + 0x60),
+            "intended_magnitude": core.f32(pointer + 0x20),
+            "intended_yaw": core.i16(pointer + 0x24),
+            "processed_stick": [core.f32(controller_address + offset) for offset in (4, 8, 12)],
+            "action_state": int(core.lib.DebugMemRead16(pointer + 0x18)),
+            "action_timer": int(core.lib.DebugMemRead16(pointer + 0x1A)),
+            "global_state_pointer": core.u32(0x8032D93C),
+            "global_timer": core.u32(0x8032D5D4),
+            "dialog_id": core.i16(0x80331484),
+            "dialog_box_state_byte": int(core.lib.DebugMemRead8(0x80331470)),
+            "button_pressed": int(core.lib.DebugMemRead16(core.u32(pointer + 0x9C) + 0x12))}
+
+
 def state(core, address):
     if not ram_address(address, 0xC8) or address % 4:
         raise ValueError(f"invalid candidate MarioState pointer {address:#x}")
@@ -213,13 +243,7 @@ def worker(args):
         counts["controller_polls"] = index + 1
 
     def extra(pointer):
-        return {"action_state": int(core.lib.DebugMemRead16(pointer + 0x18)),
-                "action_timer": int(core.lib.DebugMemRead16(pointer + 0x1A)),
-                "global_state_pointer": core.u32(0x8032D93C),
-                "global_timer": core.u32(0x8032D5D4),
-                "dialog_id": core.i16(0x80331484),
-                "dialog_box_state_byte": int(core.lib.DebugMemRead8(0x80331470)),
-                "button_pressed": int(core.lib.DebugMemRead16(core.u32(pointer + 0x9C) + 0x12))}
+        return diagnostics(core, pointer)
 
     def update(pc):
         nonlocal pending
