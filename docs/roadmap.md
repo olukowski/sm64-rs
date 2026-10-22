@@ -47,6 +47,7 @@ remain explicit, separate decisions.
 - [x] Local pinned US0 reference capture adapter, initial field/boundary corroboration and repeatable movement observations
 - [x] First bounded native flat-walk model and exact original-versus-native comparison
 - [x] Short-release extension: all 1–9-tick holds independently repeated and matched through first idle
+- [x] Repeatable BOB baseline: ordinary flat lane, fixed diagonal, all 1–5-tick holds matched through first idle
 - [ ] Expand native actions/input coverage and implement original collision resolution
 - [ ] Animation and camera integration
 
@@ -54,7 +55,7 @@ See [simulation.md](simulation.md) for implemented boundaries and the reference
 capture contract; [local emulator notes](reference-emulator.md) document the first
 repeatable original-game observations. Mathematical probes and toy replay tests must not be
 reported as verified Mario behavior. The [first movement slice](movement-slice.md)
-validates idle → straight acceleration → braking to first stop on an explicitly
+validates idle → straight acceleration → neutral release to first stop on an explicitly
 verified flat lane; it is not a general controller or playable viewer.
 
 ## M3 — First playable slice

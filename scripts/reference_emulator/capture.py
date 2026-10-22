@@ -22,7 +22,7 @@ import sys
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.reference_emulator import core as api
-from scripts.reference_emulator import setup, trace_export
+from scripts.reference_emulator import bob_route, setup, trace_export
 
 US_SHA256 = "17ce077343c6133f8c9f2d6d6d9a4ab62c8cd2aa57c40aea1f490b4c8bb21d91"
 MAX_ROM = 64 * 1024 * 1024
@@ -213,6 +213,7 @@ def worker(args):
     manifest = checked_manifest(args.manifest)
     rom = rom_bytes(args.rom)
     segments = schedule_read(args.schedule)
+    policy = bob_route.BobRoute(args.policy_hold) if args.input_policy else None
     artifacts = manifest["artifacts"]
     core = api.Core(*(Path(artifacts[name]["path"]) for name in ("core", "rsp", "input", "video")))
     output = args.out
@@ -243,6 +244,8 @@ def worker(args):
     def poll(index):
         nonlocal last_input
         raw = input_at(segments, index)
+        if policy is not None:
+            raw = policy.input(index, raw)
         if raw != last_input:
             if len(events) >= 10001:
                 raise ValueError("too many input events")
@@ -279,6 +282,8 @@ def worker(args):
             snapshots.append({**{k: v for k,v in pending.items() if k != "breakpoint"},
                               "after": post, "extra_after": extra(pending["state_address"]), "return_vi": counts["vi"],
                               "return_poll": counts["controller_polls"]})
+            if policy is not None:
+                policy.observe(post, snapshots[-1]["extra_after"])
             counts["returns"] += 1
             pending = None
             if counts["returns"] >= args.updates:
@@ -306,10 +311,17 @@ def worker(args):
         core.execute()
     finally:
         core.close()
+    generated = bob_route.applied_schedule(events, counts["controller_polls"]) if policy is not None else None
+    if generated is not None:
+        end, segments = 0, []
+        for segment in generated["segments"]:
+            end += segment["polls"]
+            segments.append((end, {key: segment[key] for key in ("buttons", "stick_x", "stick_y")}))
     report = {
         "version": 1, "status": "exploratory_boundary_probe_not_validated_game_trace",
         "rom_sha256": US_SHA256, "entry": args.entry, "counts": counts,
         "record_from_poll": args.record_from_poll,
+        "input_policy": {"name": args.input_policy, "hold": args.policy_hold} if policy is not None else None,
         "input_schedule": [{"end_poll": end, "input": raw} for end, raw in segments],
         "emulator": manifest, "input_events": events, "observations": snapshots,
         "warnings": logs,
@@ -318,6 +330,9 @@ def worker(args):
     write_new(output / "probe.json", report)
     if args.entry is not None and counts["returns"] != args.updates:
         raise ValueError(f"only {counts['returns']} of {args.updates} requested boundaries reached; inspect probe.json")
+    if generated is not None:
+        policy.validate_completed(counts["controller_polls"])
+        write_new(output / "inputs.json", generated)
     if args.export_trace:
         for snapshot in snapshots:
             if snapshot["input"] != input_at(segments, snapshot["entry_poll"] - 1):
@@ -327,7 +342,8 @@ def worker(args):
         trace = trace_export.build_trace(
             snapshots, manifest, args.scenario,
             f"Cold boot with empty private EEPROM/paks; no state load or game-memory writes; "
-            f"input schedule SHA256 {schedule_hash}; {args.trace_start} preceding action calls. "
+            f"input schedule SHA256 {schedule_hash}; recording began at controller-poll count "
+            f"{args.record_from_poll}; {args.trace_start} preceding recorded action calls. "
             "Initial observation is not a complete save-state.",
             previous_input=previous, start=args.trace_start)
         write_new(output / "trace.json", trace)
@@ -339,6 +355,9 @@ def main():
     parser.add_argument("--rom", type=Path, default=os.environ.get("SM64_ROM"))
     parser.add_argument("--out", type=Path, required=True, help="NEW directory below .cache")
     parser.add_argument("--schedule", type=Path, help="authored raw input segments indexed by controller poll")
+    parser.add_argument("--input-policy", choices=[bob_route.NAME],
+                        help="approximate research-only BOB controller; emits ignored inputs.json for independent replay")
+    parser.add_argument("--policy-hold", type=int, default=1, help="BOB policy's final full-forward hold, 1..5 ticks")
     parser.add_argument("--profile", choices=["us0-action"], help="documented US0 execute_mario_action boundary and state address")
     parser.add_argument("--entry", type=lambda v: int(v, 0), help="exploratory entry breakpoint; a0 is used only without --state-address")
     parser.add_argument("--state-address", type=lambda v: int(v, 0), help="explicit candidate MarioState address when entry does not take a0")
@@ -360,6 +379,15 @@ def main():
             if args.entry is not None or args.state_address is not None:
                 raise ValueError("profile cannot be combined with custom entry/state addresses")
             args.entry, args.state_address = 0x80254830, 0x8033B170
+        if args.input_policy:
+            if (args.entry, args.state_address) != (0x80254830, 0x8033B170) or args.schedule is None:
+                raise ValueError("BOB input policy requires the US0 action profile and authored boot schedule")
+            if args.export_trace or args.record_from_poll:
+                raise ValueError("BOB input policy requires full recording and no trace export; replay generated inputs separately")
+            if not 1 <= args.policy_hold <= 5:
+                raise ValueError("BOB policy hold must be in 1..5")
+        elif args.policy_hold != 1:
+            raise ValueError("policy-hold requires an input policy")
         if args.export_trace and (args.entry != 0x80254830 or args.state_address != 0x8033B170):
             raise ValueError("trace export requires the documented US0 action profile")
         if args.export_trace and (not args.scenario.strip() or not 0 <= args.trace_start < args.updates):
@@ -395,6 +423,8 @@ def main():
                    "--rom", str(args.rom), "--out", str(args.out), "--updates", str(args.updates),
                    "--max-vis", str(args.max_vis), "--timeout", str(args.timeout),
                    "--record-from-poll", str(args.record_from_poll)]
+        if args.input_policy:
+            command += ["--input-policy", args.input_policy, "--policy-hold", str(args.policy_hold)]
         if args.export_trace:
             command += ["--export-trace", "--trace-start", str(args.trace_start), "--scenario", args.scenario]
         if args.screenshot:

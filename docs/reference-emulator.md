@@ -164,7 +164,20 @@ the emulator; test counts grow as the tooling evolves.
 
 A [minimal native movement slice](movement-slice.md) now reproduces the flat
 idle → straight acceleration → braking-to-stop window with exact observed bits.
+The [BOB baseline](movement-slice.md#bob-differential-baseline) also repeats a
+short diagonal sequence on ordinary flat BOB ground after a separate approach.
+`capture --input-policy bob-flat-v1 --policy-hold 1..5` is an optional authored
+research controller: use the documented castle boot schedule, full recording,
+`--updates 3500 --max-vis 10000 --timeout 240`, and **no** trace export. A complete
+run emits ignored `inputs.json` for independent open-loop replay. Feedback
+bootstrap probes are exploratory and cannot pass `movement_check`. The
+`bob_baseline` command orchestrates all five holds and two replays per hold;
+its generated inputs, initialization and traces are private research output.
+Neither the bootstrap route nor its approximate controller inverse is native
+movement/camera behavior. Native initialization uses one observed rest state;
+native boot, castle navigation, painting warp and the approach are not implemented.
+
 Still absent: general native actions, original collision resolution, a full
-initialization/save-state schema, verified original camera, BOB gameplay capture,
-and comparisons against original hardware or independently configured emulators.
+initialization/save-state schema, verified original camera, and comparisons
+against original hardware or independently configured emulators.
 The static mathematical probes must not be substituted for the original solver.

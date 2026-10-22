@@ -344,3 +344,303 @@ fn short_scenarios_end_exactly_on_first_idle_and_reject_extra_updates() {
         assert!(s.run().is_err());
     }
 }
+
+#[test]
+fn negative_z_keeps_the_nonmoving_x_signed_zero() {
+    let mut state = initial();
+    state.position[0] = -0.0;
+    let mut r = Runner::new(state, FlatWalk::new(lane()).unwrap()).unwrap();
+    r.step(forward()).unwrap();
+    r.step(ControllerInput::default()).unwrap();
+    assert_eq!(r.state().position[0].to_bits(), (-0.0_f32).to_bits());
+}
+
+fn diagonal_lane() -> FlatLane {
+    FlatLane {
+        max_x: 1000.0,
+        ..lane()
+    }
+}
+
+fn diagonal_initial() -> MarioState {
+    MarioState {
+        face_yaw: 24576,
+        ..initial()
+    }
+}
+
+#[test]
+fn diagonal_holds_have_exact_velocity_quarters_signed_zeros_and_short_release() {
+    use sm64_sim::movement::MAX_DIAGONAL_WALK_TICKS;
+    assert_eq!(MAX_DIAGONAL_WALK_TICKS, 5);
+    let mut rounding_differs = [false; 2];
+    for held in 1..=MAX_DIAGONAL_WALK_TICKS {
+        let mut r =
+            Runner::new(diagonal_initial(), FlatWalk::new(diagonal_lane()).unwrap()).unwrap();
+        for _ in 0..MAX_IDLE_TICKS {
+            r.step(ControllerInput::default()).unwrap();
+            assert_eq!(r.state().velocity.map(f32::to_bits), [0, 0, 0x8000_0000]);
+            assert_eq!(r.state().action, IDLE);
+        }
+        let mut speed = 8.0_f32;
+        let mut position = diagonal_initial().position;
+        let mut tick = 0;
+        loop {
+            let walking = tick < held;
+            if walking {
+                speed += 1.1_f32 - speed / 43.0_f32;
+            } else {
+                speed = (speed - 1.0_f32).max(0.0);
+            }
+            let component = speed * std::f32::consts::FRAC_1_SQRT_2;
+            let velocity = [component, 0.0, -component];
+            let before = position;
+            for _ in 0..4 {
+                position[0] += component / 4.0;
+                position[2] += -component / 4.0;
+            }
+            for (i, axis) in [0, 2].into_iter().enumerate() {
+                rounding_differs[i] |=
+                    (before[axis] + velocity[axis]).to_bits() != position[axis].to_bits();
+            }
+            r.step(if walking {
+                forward()
+            } else {
+                ControllerInput::default()
+            })
+            .unwrap();
+            assert_eq!(r.state().forward_velocity.to_bits(), speed.to_bits());
+            assert_eq!(
+                r.state().velocity.map(f32::to_bits),
+                velocity.map(f32::to_bits)
+            );
+            assert_eq!(
+                r.state().position.map(f32::to_bits),
+                position.map(f32::to_bits)
+            );
+            assert_eq!(r.state().face_yaw, 24576);
+            assert_eq!(
+                r.state().action,
+                if walking {
+                    WALKING
+                } else if speed == 0.0 {
+                    IDLE
+                } else {
+                    DECELERATING
+                }
+            );
+            if speed == 0.0 {
+                break;
+            }
+            tick += 1;
+        }
+        assert_eq!(r.state().velocity.map(f32::to_bits), [0, 0, 0x8000_0000]);
+        let last = *r.state();
+        let tick = r.tick();
+        assert!(r.step(ControllerInput::default()).is_err());
+        assert!(r.step(forward()).is_err());
+        assert_eq!(r.state(), &last);
+        assert_eq!(r.tick(), tick);
+        assert!(r.into_model().complete());
+    }
+    assert_eq!(rounding_differs, [true, true]);
+}
+
+#[test]
+fn sixth_diagonal_forward_is_atomic_and_neutral_retry_matches_control() {
+    let make = || Runner::new(diagonal_initial(), FlatWalk::new(diagonal_lane()).unwrap()).unwrap();
+    let mut r = make();
+    let mut control = make();
+    for _ in 0..5 {
+        r.step(forward()).unwrap();
+        control.step(forward()).unwrap();
+    }
+    let last = *r.state();
+    assert!(
+        r.step(forward())
+            .unwrap_err()
+            .to_string()
+            .contains("budget")
+    );
+    assert_eq!(r.state(), &last);
+    assert_eq!(r.tick(), 5);
+    assert_eq!(r.previous_input(), forward());
+    loop {
+        r.step(ControllerInput::default()).unwrap();
+        control.step(ControllerInput::default()).unwrap();
+        assert_eq!(r.state(), control.state());
+        if r.state().action == IDLE {
+            break;
+        }
+    }
+    assert!(r.into_model().complete());
+}
+
+#[test]
+fn headings_lock_only_on_success_and_reject_idle_and_walking_turns() {
+    use sm64_sim::{TickModel, input::TickInput};
+    let input = |raw| TickInput {
+        raw,
+        ..Default::default()
+    };
+    for yaw in [0, 24575, 24577, -32767] {
+        for raw in [ControllerInput::default(), forward()] {
+            let mut model = FlatWalk::new(lane()).unwrap();
+            let mut state = MarioState {
+                face_yaw: yaw,
+                ..initial()
+            };
+            let before = state;
+            assert!(model.tick(&mut state, input(raw), 0).is_err());
+            assert_eq!(state, before);
+            // The failed first tick must not lock any heading or phase.
+            state = diagonal_initial();
+            model.tick(&mut state, input(raw), 0).unwrap();
+        }
+    }
+    for initial_yaw in [i16::MIN, 24576] {
+        for idle_count in [0, 1, MAX_IDLE_TICKS] {
+            let mut model = FlatWalk::new(lane()).unwrap();
+            let mut state = MarioState {
+                face_yaw: initial_yaw,
+                ..initial()
+            };
+            for tick in 0..idle_count {
+                model
+                    .tick(&mut state, input(ControllerInput::default()), tick.into())
+                    .unwrap();
+            }
+            if idle_count != 0 {
+                let mut tampered = state;
+                tampered.face_yaw = if initial_yaw == i16::MIN {
+                    24576
+                } else {
+                    i16::MIN
+                };
+                let before = tampered;
+                for raw in [ControllerInput::default(), forward()] {
+                    assert!(model.tick(&mut tampered, input(raw), 5).is_err());
+                    assert_eq!(tampered, before);
+                }
+            }
+            model.tick(&mut state, input(forward()), 5).unwrap();
+            let mut control = model.clone();
+            let mut expected = state;
+            let mut tampered = state;
+            tampered.face_yaw = if initial_yaw == i16::MIN {
+                24576
+            } else {
+                i16::MIN
+            };
+            // Supply the other heading's correct velocity so this specifically
+            // tests persisted heading, not merely a mismatched velocity.
+            let v = state.forward_velocity;
+            let c = v * std::f32::consts::FRAC_1_SQRT_2;
+            tampered.velocity = if initial_yaw == i16::MIN {
+                [c, 0.0, -c]
+            } else {
+                [0.0, 0.0, -v]
+            };
+            let before = tampered;
+            assert!(model.tick(&mut tampered, input(forward()), 6).is_err());
+            assert_eq!(tampered, before);
+            model
+                .tick(&mut state, input(ControllerInput::default()), 6)
+                .unwrap();
+            control
+                .tick(&mut expected, input(ControllerInput::default()), 6)
+                .unwrap();
+            assert_eq!(state, expected);
+        }
+    }
+}
+
+#[test]
+fn diagonal_x_lane_escape_rolls_back_heading_phase_and_state() {
+    use sm64_sim::{TickModel, input::TickInput};
+    let mut restricted = lane();
+    restricted.max_x = initial().position[0] + 3.0; // Second diagonal quarter exits.
+    let mut model = FlatWalk::new(restricted).unwrap();
+    let mut state = diagonal_initial();
+    let before = state;
+    assert!(
+        model
+            .tick(
+                &mut state,
+                TickInput {
+                    raw: forward(),
+                    ..Default::default()
+                },
+                0
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("quarter step")
+    );
+    assert_eq!(state, before);
+    assert_eq!(state.velocity.map(f32::to_bits), [0, 0, 0x8000_0000]);
+    // A failed diagonal tick must not lock heading: -Z fits the same lane.
+    state.face_yaw = i16::MIN;
+    let mut control = FlatWalk::new(restricted).unwrap();
+    let mut expected = state;
+    let input = TickInput {
+        raw: forward(),
+        ..Default::default()
+    };
+    model.tick(&mut state, input, 0).unwrap();
+    control.tick(&mut expected, input, 0).unwrap();
+    assert_eq!(state, expected);
+}
+
+#[test]
+fn diagonal_rejects_wrong_direction_velocity_atomically() {
+    use sm64_sim::{TickModel, input::TickInput};
+    for axis in 0..3 {
+        let mut model = FlatWalk::new(lane()).unwrap();
+        let mut state = diagonal_initial();
+        let input = TickInput {
+            raw: forward(),
+            ..Default::default()
+        };
+        model.tick(&mut state, input, 0).unwrap();
+        let valid = state;
+        state.velocity[axis] += 0.25;
+        let before = state;
+        assert!(model.tick(&mut state, input, 1).is_err());
+        assert_eq!(state, before);
+        state = valid;
+        model.tick(&mut state, input, 1).unwrap();
+    }
+}
+
+#[test]
+fn diagonal_scenarios_declare_the_bounded_heading_and_stop_at_first_idle() {
+    for held in 1..=5 {
+        let mut speed = 8.0_f32;
+        for _ in 0..held {
+            speed += 1.1_f32 - speed / 43.0;
+        }
+        let duration = speed.ceil() as u8;
+        let mut s = scenario();
+        s.initial_state = diagonal_initial();
+        s.lane = diagonal_lane();
+        s.segments[1].ticks = held;
+        s.segments[2].ticks = duration;
+        let trace = s.run().unwrap();
+        assert_eq!(trace.frames.last().unwrap().state.action, IDLE);
+        assert!(trace.manifest.settings.contains("fixed initial yaw 24576"));
+        assert!(
+            trace
+                .manifest
+                .settings
+                .contains("yaw 24576: 1..=5 walking ticks")
+        );
+        assert!(trace.manifest.settings.contains("FRAC_1_SQRT_2"));
+        for ticks in [duration - 1, duration + 1] {
+            s.segments[2].ticks = ticks;
+            assert!(s.run().is_err());
+        }
+        s.segments[1].ticks = 6;
+        assert!(s.run().is_err());
+    }
+}

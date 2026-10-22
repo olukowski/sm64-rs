@@ -36,11 +36,15 @@ def number(value):
     return value
 
 
-def check_environment(state, extra, raw, lane, *, after):
+def check_environment(state, extra, raw, lane, *, after, yaw):
     x, y, z = state["position"]
     require(lane["min_x"] <= x <= lane["max_x"] and
             lane["min_z"] <= z <= lane["max_z"] and y == lane["height"], "position outside lane")
-    require(state["face_yaw"] == -32768, "unsupported observed yaw")
+    require(state["face_yaw"] == yaw, "unsupported observed yaw")
+    if yaw == 24576:
+        require(all(type(extra[key]) is int for key in ("level_num", "area_index", "act_num")) and
+                (extra["level_num"], extra["area_index"], extra["act_num"]) == (9, 1, 1),
+                "diagonal reference must remain in BOB area 1 act 1")
     require(state["action"] in (IDLE, WALKING, DECELERATING, BRAKING, STOP), "unsupported observed action")
     floor = extra["floor"]
     require(isinstance(floor, dict) and type(floor["type"]) is int and floor["type"] == 0,
@@ -71,7 +75,7 @@ def check_environment(state, extra, raw, lane, *, after):
     require(extra["processed_stick"] == expected_stick, "processed stick mismatch")
     require(number(extra["intended_magnitude"]) in (0, 32), "unsupported intended magnitude")
     if after:
-        require(extra["intended_yaw"] == -32768, "unsupported intended yaw")
+        require(extra["intended_yaw"] == yaw, "unsupported intended yaw")
         require(number(extra["intended_magnitude"]) == (32 if raw == FORWARD else 0),
                 "intended magnitude mismatch")
 
@@ -83,6 +87,9 @@ def validate(probe, scenario):
             "unsupported probe protocol")
     require(probe["rom_sha256"] == export.US_SHA256 and probe["entry"] == 0x80254830,
             "wrong US ROM or entry")
+    require(probe.get("input_policy") is None,
+            "feedback-policy probes are exploratory; replay generated inputs in an independent cold boot")
+    record_from_poll = integer(probe.get("record_from_poll", 0), 0, 100000)
     observations = probe["observations"]
     require(isinstance(observations, list) and 1 <= len(observations) <= 10000, "invalid observation count")
     counts = probe["counts"]
@@ -115,7 +122,7 @@ def validate(probe, scenario):
         require(event["input"] == raw, "input event mismatch")
         last_vi = integer(event["vi"], last_vi, counts["vi"])
     for obs in observations:
-        poll = integer(obs["entry_poll"], 1, counts["controller_polls"])
+        poll = integer(obs["entry_poll"], max(1, record_from_poll), counts["controller_polls"])
         require(obs["input"] == capture.input_at(segments, poll - 1), "schedule/sample mismatch")
         integer(obs["return_vi"], 0, counts["vi"])
         for event in events:
@@ -153,8 +160,10 @@ def validate(probe, scenario):
     require(export._state(scenario["initial_state"]) == export._state(trace["initial_state"]), "initial state bits mismatch")
     require(trace["previous_input"] == scenario["previous_input"], "actual predecessor mismatch")
     initial = trace["initial_state"]
-    require(initial["action"] == IDLE and initial["face_yaw"] == -32768 and
+    yaw = initial["face_yaw"]
+    require(initial["action"] == IDLE and yaw in (-32768, 24576) and
             initial["velocity"] == [0, 0, 0] and initial["forward_velocity"] == 0, "initial state not idle/rest")
+    require(yaw != 24576 or inputs.count(FORWARD) <= 5, "diagonal hold must be 1..5 ticks")
     # Check declared phase/action envelope only; do not replay speeds or positions.
     phase, idle, walking = "idle", 0, 0
     for index, (obs, raw) in enumerate(zip(observations[start:start + len(inputs)], inputs)):
@@ -175,13 +184,14 @@ def validate(probe, scenario):
         require(idle <= 5 and walking <= 30 and obs["after"]["action"] in allowed,
                 "unsupported phase/action budget")
         for boundary in ("before", "after"):
-            check_environment(obs[boundary], obs["extra_" + boundary], raw, lane, after=boundary == "after")
+            check_environment(obs[boundary], obs["extra_" + boundary], raw, lane,
+                              after=boundary == "after", yaw=yaw)
     final = trace["frames"][-1]["state"]
     require(phase == "release" and walking >= 1 and final["action"] == stop_action and
             final["forward_velocity"] == 0, "incomplete release sequence")
     settings = json.loads(trace["manifest"]["settings"])
     settings["movement_envelope"] = {
-        "lane": lane, "assertions": "Every selected before/after: ordinary horizontal triangle contains whole rectangle; no walls, interactions, squish, quicksand; ceiling clearance >=1000; water < height-160. Conservative safety bounds, not game rules.",
+        "lane": lane, "face_yaw": yaw, "record_from_poll": record_from_poll, "assertions": "Every selected before/after: ordinary horizontal triangle contains whole rectangle; no walls, interactions, squish, quicksand; ceiling clearance >=1000; water < height-160. Conservative safety bounds, not game rules.",
         "scope": "Independent observed reference only; no native arithmetic replay/fitting, no original-hardware proof. Initial state matched bitwise once to selected BEFORE; actual preceding input verified."}
     trace["manifest"]["settings"] = json.dumps(settings, sort_keys=True, allow_nan=False)
     return trace

@@ -10,40 +10,42 @@ import unittest
 from scripts.reference_emulator import movement_check as check, trace_export as export
 
 
-def fixture():
+def fixture(*, hold=10, yaw=-32768):
     lane = dict(min_x=-1, max_x=1, min_z=-1, max_z=1, height=0)
     def state(action):
         return dict(position=[0.0, 0.0, 0.0], velocity=[0.0, 0.0, -0.0],
-                    forward_velocity=0.0, face_yaw=-32768, action=action)
+                    forward_velocity=0.0, face_yaw=yaw, action=action)
     def extra(tick, forward):
         return dict(global_state_pointer=export.STATE_ADDRESS, global_timer=tick, button_pressed=0,
                     floor=dict(address=0x80300000, type=0, normal=[0, 1, 0],
                                vertices=[[-10, 0, -10], [10, 0, -10], [0, 0, 10]]),
                     floor_height=0, water_level=-1000, ceiling_height=2000, wall=0,
                     dialog_id=-1, squish_timer=0, quicksand_depth=0, held_object=0, ridden_object=0,
-                    intended_yaw=-32768, intended_magnitude=32 if forward else 0,
+                    level_num=9 if yaw == 24576 else 16, area_index=1, act_num=1,
+                    intended_yaw=yaw, intended_magnitude=32 if forward else 0,
                     processed_stick=[0, 64, 64] if forward else [0, 0, 0])
     observations = []
-    actions = [check.IDLE] + [check.WALKING] * 10 + [check.BRAKING, check.BRAKING, check.STOP]
-    for i in range(13):
+    release, stop = (check.DECELERATING, check.IDLE) if hold < 10 else (check.BRAKING, check.STOP)
+    actions = [check.IDLE] + [check.WALKING] * hold + [release, release, stop]
+    for i in range(hold + 3):
         observations.append(dict(before=state(actions[i]), after=state(actions[i+1]),
-                                 input=copy.deepcopy(check.FORWARD if i < 10 else check.NEUTRAL),
-                                 extra_before=extra(100+i, i < 10), extra_after=extra(100+i, i < 10),
+                                 input=copy.deepcopy(check.FORWARD if i < hold else check.NEUTRAL),
+                                 extra_before=extra(100+i, i < hold), extra_after=extra(100+i, i < hold),
                                  state_address=export.STATE_ADDRESS, return_pc=0x80240000,
                                  entry_poll=i+2, return_poll=i+2, entry_vi=i+2, return_vi=i+2))
     probe = dict(version=1, status="exploratory_boundary_probe_not_validated_game_trace",
                  rom_sha256=export.US_SHA256, entry=0x80254830,
-                 counts=dict(vi=14, entries=13, returns=13, controller_polls=14),
+                 counts=dict(vi=hold+4, entries=hold+3, returns=hold+3, controller_polls=hold+4),
                  input_schedule=[dict(end_poll=1, input=copy.deepcopy(check.NEUTRAL)),
-                                 dict(end_poll=11, input=copy.deepcopy(check.FORWARD))],
+                                 dict(end_poll=hold+1, input=copy.deepcopy(check.FORWARD))],
                  input_events=[dict(poll=0, vi=1, input=copy.deepcopy(check.NEUTRAL)),
                                dict(poll=1, vi=2, input=copy.deepcopy(check.FORWARD)),
-                               dict(poll=11, vi=12, input=copy.deepcopy(check.NEUTRAL))],
+                               dict(poll=hold+1, vi=hold+2, input=copy.deepcopy(check.NEUTRAL))],
                  observations=observations, emulator={"synthetic": True})
     scenario = dict(version=1, scenario="synthetic-envelope", initialization="Authored one-time rest state",
                     input_sampling=export.INPUT_SAMPLING, state_boundary=export.STATE_BOUNDARY,
                     start_tick=100, initial_state=state(check.IDLE), previous_input=copy.deepcopy(check.NEUTRAL),
-                    lane=lane, segments=[dict(ticks=10, input=copy.deepcopy(check.FORWARD)),
+                    lane=lane, segments=[dict(ticks=hold, input=copy.deepcopy(check.FORWARD)),
                                          dict(ticks=3, input=copy.deepcopy(check.NEUTRAL))])
     return probe, scenario
 
@@ -58,6 +60,25 @@ class MovementCheckTests(unittest.TestCase):
         self.assertEqual(trace["initial_state"], scenario["initial_state"])
         self.assertIn("movement_envelope", json.loads(trace["manifest"]["settings"]))
         self.assertEqual((probe, scenario), original)
+
+    def test_diagonal_requires_fixed_heading_small_hold_and_bob_scene(self):
+        for hold in range(1, 6):
+            p, s = fixture(hold=hold, yaw=24576)
+            trace = check.validate(p, s)
+            self.assertEqual(trace["initial_state"]["face_yaw"], 24576)
+            for side in ("extra_before", "extra_after"):
+                for key, value in (("level_num", 16), ("area_index", 2),
+                                   ("act_num", 2), ("act_num", True)):
+                    bad = copy.deepcopy(p)
+                    bad["observations"][0][side][key] = value
+                    with self.assertRaisesRegex(ValueError, "BOB"):
+                        check.validate(bad, s)
+            p["observations"][0]["extra_after"]["intended_yaw"] = -32768
+            with self.assertRaisesRegex(ValueError, "intended yaw"):
+                check.validate(p, s)
+        p, s = fixture(hold=6, yaw=24576)
+        with self.assertRaisesRegex(ValueError, "1..5"):
+            check.validate(p, s)
 
     def test_environment_failures_both_boundaries(self):
         changes = [("floor.type", 1), ("floor.normal", [0, .9, .1]),
@@ -83,7 +104,8 @@ class MovementCheckTests(unittest.TestCase):
     def test_report_scenario_and_chain_negatives(self):
         changes = [
             ("p.rom_sha256", "0"*64), ("p.entry", 0x80254834), ("p.version", 2),
-            ("p.status", "validated"), ("p.counts.entries", 14), ("p.counts.controller_polls", 4),
+            ("p.status", "validated"), ("p.input_policy", {"name": "bob-flat-v1", "hold": 1}),
+            ("p.record_from_poll", 3), ("p.record_from_poll", True), ("p.counts.entries", 14), ("p.counts.controller_polls", 4),
             ("p.input_schedule.1.end_poll", 1), ("p.input_events.1.poll", 2),
             ("p.input_events.1.vi", 5), ("p.observations.0.input.stick_y", 0),
             ("p.observations.3.extra_after.global_timer", 200),

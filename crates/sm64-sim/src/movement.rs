@@ -21,6 +21,7 @@ pub const MAX_IDLE_TICKS: u8 = 5;
 pub const MIN_WALK_TICKS: u8 = 1;
 pub const MIN_BRAKING_WALK_TICKS: u8 = 10;
 pub const MAX_WALK_TICKS: u8 = 30;
+pub const MAX_DIAGONAL_WALK_TICKS: u8 = 5;
 
 /// A caller-asserted safe region, NOT extracted terrain or a collision solver.
 /// Bounds include Mario's entire unobstructed route; no slopes, special surfaces,
@@ -68,15 +69,52 @@ enum Phase {
     Complete,
 }
 
-/// One sequence: up to five idle ticks, 1..=30 full-forward ticks, then
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Heading {
+    NegativeZ,
+    PositiveXNegativeZ,
+}
+
+impl Heading {
+    fn from_yaw(yaw: i16) -> Result<Self, Error> {
+        match yaw {
+            i16::MIN => Ok(Self::NegativeZ),
+            24576 => Ok(Self::PositiveXNegativeZ),
+            _ => Err(unsupported("only fixed yaw -32768 or 24576 is supported")),
+        }
+    }
+
+    fn velocity(self, speed: f32) -> [f32; 3] {
+        match self {
+            Self::NegativeZ => [0.0, 0.0, -speed],
+            Self::PositiveXNegativeZ => {
+                let component = speed * std::f32::consts::FRAC_1_SQRT_2;
+                [component, 0.0, -component]
+            }
+        }
+    }
+
+    fn max_walk_ticks(self) -> u8 {
+        match self {
+            Self::NegativeZ => MAX_WALK_TICKS,
+            Self::PositiveXNegativeZ => MAX_DIAGONAL_WALK_TICKS,
+        }
+    }
+}
+
+/// One sequence: up to five idle ticks, then full-forward for 1..=30 ticks
+/// at yaw -32768 (-Z), or 1..=5 at yaw 24576 (+X/-Z diagonal), then
 /// neutral release through the first zero-speed observation: IDLE for holds
 /// shorter than ten ticks, BRAKING_STOP otherwise. No updates after that stop
-/// are supported. Construct a new model at idle/rest for each run; this is not
-/// a hidden-state restore API.
+/// are supported. Heading locks on the first successful tick, including idle.
+/// Diagonal velocity uses fresh f32 FRAC_1_SQRT_2, not arbitrary trig.
+/// Construct a new model at idle/rest for each run; this is not a hidden-state
+/// restore API.
 #[derive(Debug, Clone)]
 pub struct FlatWalk {
     lane: FlatLane,
     phase: Phase,
+    heading: Option<Heading>,
     idle_ticks: u8,
     walk_ticks: u8,
 }
@@ -87,6 +125,7 @@ impl FlatWalk {
         Ok(Self {
             lane,
             phase: Phase::Idle,
+            heading: None,
             idle_ticks: 0,
             walk_ticks: 0,
         })
@@ -114,15 +153,20 @@ impl FlatWalk {
                 "action does not match model phase (start at idle)",
             ));
         }
+        let heading = Heading::from_yaw(state.face_yaw)?;
+        if self.heading.is_some_and(|locked| locked != heading) {
+            return Err(unsupported(
+                "heading changed after the first successful tick",
+            ));
+        }
         if !self.lane.contains(state.position)
-            || state.face_yaw != i16::MIN
             || state.forward_velocity < 0.0
             || state.forward_velocity > 28.0
-            || state.velocity != [0.0, 0.0, -state.forward_velocity]
+            || state.velocity != heading.velocity(state.forward_velocity)
             || (self.phase == Phase::Idle && state.forward_velocity != 0.0)
         {
             return Err(unsupported(
-                "state is outside the flat, fixed -Z, grounded envelope",
+                "state is outside the flat, fixed-heading, grounded envelope",
             ));
         }
         if input.buttons != 0 || input.stick_x != 0 || ![0, 80].contains(&input.stick_y) {
@@ -130,6 +174,7 @@ impl FlatWalk {
                 "only neutral or raw (0,80), without buttons, is supported",
             ));
         }
+        self.heading = Some(heading);
         let forward = input.stick_y == 80;
         match self.phase {
             Phase::Idle if !forward => {
@@ -161,7 +206,7 @@ impl FlatWalk {
             _ => {}
         }
         if self.phase == Phase::Walking {
-            if self.walk_ticks == MAX_WALK_TICKS {
+            if self.walk_ticks == heading.max_walk_ticks() {
                 return Err(unsupported("walking observation budget exhausted"));
             }
             self.walk_ticks += 1;
@@ -178,12 +223,16 @@ impl FlatWalk {
                 self.phase = Phase::Complete;
             }
         }
-        state.velocity = [0.0, 0.0, -state.forward_velocity];
-        // Four separately rounded quarter steps, not one full displacement.
-        // On an unobstructed horizontal floor only Z can change in this slice.
-        let quarter = state.velocity[2] / 4.0;
+        state.velocity = heading.velocity(state.forward_velocity);
+        // Four separately rounded quarter steps on both horizontal axes,
+        // not one full displacement. Check the lane after each quarter.
+        let quarter_x = state.velocity[0] / 4.0;
+        let quarter_z = state.velocity[2] / 4.0;
         for _ in 0..4 {
-            state.position[2] += quarter;
+            if heading == Heading::PositiveXNegativeZ {
+                state.position[0] += quarter_x;
+            }
+            state.position[2] += quarter_z;
             if !self.lane.contains(state.position) {
                 return Err(unsupported("quarter step leaves the verified flat lane"));
             }
@@ -285,8 +334,8 @@ impl Scenario {
                 producer: "sm64-rs bounded flat-walk model".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
                 settings: format!(
-                    "Caller-asserted flat lane {:?}; fixed -Z; raw neutral/(0,80); no buttons; max 5 idle ticks, 1..=30 walking ticks; holds 1..=9 decelerate by 1 to IDLE, holds 10..=30 brake by 4 to BRAKING_STOP; ends at first zero-speed stop",
-                    self.lane
+                    "Caller-asserted flat lane {:?}; fixed initial yaw {} (locked on first successful tick); raw neutral/(0,80); no buttons; max 5 idle ticks; yaw -32768: 1..=30 walking ticks, holds 1..=9 decelerate by 1 to IDLE, holds 10..=30 brake by 4 to BRAKING_STOP; yaw 24576: 1..=5 walking ticks, fresh f32 FRAC_1_SQRT_2 +X/-Z velocity, decelerate by 1 to IDLE; ends at first zero-speed stop",
+                    self.lane, self.initial_state.face_yaw
                 ),
                 initialization: self.initialization.clone(),
                 input_sampling: self.input_sampling.clone(),

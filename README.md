@@ -100,12 +100,13 @@ output in `.cache/`, `extracted/` or `traces/`. MIO0 signatures are not a comple
 asset directory; stored header CRCs are not recomputed checksum verification.
 
 The [movement slice](docs/movement-slice.md) implements idle → straight full-forward
-acceleration → braking to first stop in an explicitly supplied flat lane. It
-supports 1–30 forward ticks and release through the first stop, fixed -Z yaw,
-neutral/(0,80) sticks and no buttons. Short holds decelerate directly to idle;
-longer holds brake to braking-stop.
-All 21 supported hold durations matched reference observations exactly; this does
-not validate general actions, terrain collision or playable viewer movement.
+acceleration → release to first stop in an explicitly supplied flat lane. It
+supports 1–30 forward ticks at fixed -Z yaw, plus 1–5 ticks at a fixed +X/-Z
+diagonal, with neutral/(0,80) sticks and no buttons. Short holds decelerate directly
+to idle; longer -Z holds brake to braking-stop.
+All 30 -Z hold durations and all five diagonal BOB holds matched reference
+observations exactly. This does not validate general actions, terrain collision
+or playable viewer movement.
 
 Try the **authored synthetic** initialization/input example without a ROM:
 

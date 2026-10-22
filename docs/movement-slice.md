@@ -6,8 +6,8 @@
 short US revision 0 sequence:
 
 1. Rest in **idle**, with up to five neutral ticks.
-2. Apply raw stick **(0, 80)** for **1–30 ticks**, facing binary yaw `-32768`
-   (straight along -Z).
+2. Apply raw stick **(0, 80)** for **1–30 ticks** at fixed binary yaw `-32768`
+   (straight along -Z), or **1–5 ticks** at yaw `24576` (+X/-Z diagonal).
 3. Release to neutral until the **first zero-speed observation**: short holds
    (1–9 ticks) decelerate directly to idle; holds of 10–30 ticks brake to
    braking-stop.
@@ -56,7 +56,8 @@ A strict version-1 scenario declares:
 
 Native initialization is performed **once**, before the sequence. There is no
 per-tick reading, correction, fitting, or lookup of reference output states.
-The state must be grounded/resting in idle, with fixed -Z facing. There are no
+The state must be grounded/resting in idle, with one of the two supported
+headings. The first successful tick locks that heading, including neutral ticks. There are no
 unmodeled action/animation timers affecting the supported output transitions:
 execution ends before the stop animation would require them. This is why Trace
 v1 can remain an observation format rather than pretending to be a save-state.
@@ -87,9 +88,13 @@ supported observations are reproduced by this recurrence:
 - Neutral release after 10–30 walking ticks subtracts 4 per tick, clamped to zero;
   its first zero-speed observation emits braking-stop.
 - Both release branches change action and decelerate in the **same** tick.
-- Velocity is `[+0, +0, -v]`, including **negative zero** at rest.
-- Position is advanced with **four separately rounded f32 quarter-additions**,
-  not one full addition. Y remains the asserted floor height.
+- At yaw `-32768`, velocity is `[+0, +0, -v]`, including **negative zero** at rest.
+- At yaw `24576`, each horizontal component has magnitude
+  `f32(v * FRAC_1_SQRT_2)`, using Rust's independently available mathematical
+  constant: velocity is `[component, +0, -component]`. This is only the observed
+  diagonal, not a general original-game trigonometric table or camera model.
+- Position is advanced with **four separately rounded f32 quarter-additions**
+  on each moving axis, not one full addition. Y remains the asserted floor height.
 
 These are observations/inferences within the declared envelope, not proof that
 this is the only possible internal arithmetic or the complete original solver.
@@ -100,8 +105,8 @@ is made. Out-of-envelope inputs fail instead of invoking a generic substitute.
 Capture diagnostics additionally record floor type/normal/vertices/height,
 ceiling/water height, wall/held/ridden object pointers, squish/quicksand state,
 processed stick, intended magnitude/yaw, and selected action/dialog state. All such game-derived output remains ignored.
-A post-update intended magnitude of 32 and yaw `-32768` corroborates the full
-forward input in this scenario; general stick processing and camera math are
+A post-update intended magnitude of 32 and the selected fixed yaw corroborate
+full-forward input within each scenario; general stick processing and camera math are
 **not** implemented by recognizing just this one raw input.
 
 ## Local differential validation
@@ -186,9 +191,54 @@ failure atomicity and complete/incomplete scenarios. Local reference evidence
 is separate from those synthetic tests. See [simulation boundaries](simulation.md)
 and [provenance policy](adr/0001-provenance.md).
 
+## BOB differential baseline
+
+A second, separately bounded sequence now starts on **ordinary flat BOB ground**
+at fixed yaw `24576`, after an unmodeled approach and rest. Every integer hold
+from **1 through 5 ticks** was repeated in two independent empty-save cold boots.
+Each sweep contains **95 transitions**, including five neutral ticks per case;
+both reference sweeps and independent native runs matched all observation fields
+with **exact f32 bits** through the first zero-speed idle observation. The checker
+also requires observed level/area/act **9/1/1** at every selected boundary.
+The longer -Z evidence remains castle-only; diagonal holds over five ticks,
+turning, the approach and native course initialization are not validated.
+
+The BOB spawn itself is **not** this lane: its camera-specific surface and initial
+camera settling lie outside the ordinary-floor/fixed-heading contract. The
+research controller navigates menus, castle doors and the painting using authored
+waypoints and an approximate feedback policy, then makes a separate approach.
+That policy is tooling only, never native camera or movement behavior. Its full
+exploratory probe crosses scene initialization and must not be exported as a
+continuous action trace. Generated controller inputs remain ignored; the actual
+comparison uses separate, **open-loop** cold boots replaying those inputs.
+
+Run the complete optional baseline (five holds, two replays each):
+
+```sh
+export SM64_ROM="/path/to/your/rom.z64"
+python3 -m scripts.reference_emulator.bob_baseline \
+  --out .cache/emulator/my-bob-baseline
+```
+
+This first generates a private bootstrap/input schedule, then copies **one BEFORE
+idle/rest observation** into each explicit native initialization. It never passes
+reference post-states, emulator state or a ROM to `movement run`. A small authored
+rectangle around that initial position is only a caller assertion: the independent
+envelope checker must corroborate all its corners against every selected ordinary
+horizontal floor triangle. No original collision resolver is used or implied.
+Each open-loop replay records starting at controller-poll count `3879`, after all
+warps, while still executing all earlier boot inputs. The full recorded chain is
+checked before selecting the movement window. Bootstrap feedback probes are
+explicitly rejected by the movement checker.
+
+Only a complete successful run writes `summary.json`; all generated schedules,
+scenarios, reference/native traces and logs remain below the new ignored output
+directory. Failures are diagnostics, not a successful baseline. Route timing and
+repeatability are established only on the pinned runner/build/host, not hardware.
+
 ## Next extensions
 
-Add repeatable independent initialization in BOB, additional stick strengths and
+Extend beyond the bounded BOB baseline with additional stick strengths and
 camera-relative directions, then original floor/ground-step resolution before
 slopes or wall contact. Animation-aware stop-to-idle, jump/landing and a complete
 versioned hidden-state restore format are separate milestones. Do not relax this

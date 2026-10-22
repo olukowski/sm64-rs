@@ -174,7 +174,8 @@ class CaptureTests(unittest.TestCase):
         args = argparse.Namespace(out=self.root, manifest=self.root / "unused.json",
                                   rom=self.root / "unused.rom", schedule=None, entry=0x80254830,
                                   state_address=0x8033B170, record_from_poll=3, updates=2,
-                                  max_vis=20, timeout=10, screenshot=False, export_trace=False)
+                                  max_vis=20, timeout=10, screenshot=False, export_trace=False,
+                                  input_policy=None, policy_hold=1)
         with patch.object(capture, "checked_manifest", return_value=manifest), \
              patch.object(capture, "rom_bytes", return_value=b""), \
              patch.object(capture.resource, "setrlimit"), \
@@ -190,6 +191,23 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(instance.bridge.CaptureSetInput.call_count, 4)
         instance.stop.assert_called_once()
         instance.close.assert_called_once()
+
+    def test_input_policy_cannot_bypass_profile_or_chain_requirements(self):
+        base = ["capture", "--rom", str(self.root / "absent.rom"), "--out", str(self.root / "new")]
+        profile = ["--profile", "us0-action", "--schedule", str(self.root / "absent.json")]
+        cases = [(["--input-policy", "bob-flat-v1"], "US0 action profile"),
+                 (profile + ["--input-policy", "bob-flat-v1", "--export-trace"], "full recording"),
+                 (profile + ["--input-policy", "bob-flat-v1", "--record-from-poll", "1"], "full recording"),
+                 (profile + ["--input-policy", "bob-flat-v1", "--policy-hold", "6"], "1..5"),
+                 (["--policy-hold", "2"], "requires an input policy")]
+        for arguments, message in cases:
+            error = io.StringIO()
+            with patch("sys.argv", base + arguments), contextlib.redirect_stderr(error):
+                with self.assertRaises(SystemExit) as raised:
+                    capture.main()
+            self.assertEqual(raised.exception.code, 1)
+            self.assertIn(message, error.getvalue())
+        self.assertFalse((self.root / "new").exists())
 
     def test_callback_errors_are_not_silently_ignored_by_ctypes(self):
         calls = []
