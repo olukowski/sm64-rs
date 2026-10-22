@@ -238,8 +238,9 @@ repeatability are established only on the pinned runner/build/host, not hardware
 
 ## Next extensions
 
-Extend beyond the bounded BOB baseline with additional stick strengths and
-camera-relative directions, then original floor/ground-step resolution before
-slopes or wall contact. Animation-aware stop-to-idle, jump/landing and a complete
+Prioritize repeated seam/slope/height-transition floor observations and bounded
+native floor/ground-step resolution before broadening movement coverage. Additional
+stick strengths and camera-relative directions follow that collision evidence gate.
+Animation-aware stop-to-idle, jump/landing and a complete
 versioned hidden-state restore format are separate milestones. Do not relax this
 model's explicit rejection boundaries without new reference evidence.

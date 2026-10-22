@@ -137,9 +137,9 @@ Metadata provenance (declarations only, not implementation bodies):
 
 - The pinned STROOP map above labels `gStaticSurfacePartition` at `0x8038be98`
   and `gDynamicSurfacePartition` at `0x8038d698`.
-- Pinned `include/types.h` declares `SurfaceNode` as next/surface pointers,
-  `SpatialPartitionCell` as three embedded nodes, and floors as category zero.
-  With N64 32-bit pointers this gives 8-byte nodes, 24-byte cells and two
+- Pinned `surface_load.h` (linked below) declares `SurfaceNode` as next/surface
+  pointers, `SpatialPartitionCell` as three embedded nodes, and floors as category
+  zero. With N64 32-bit pointers this gives 8-byte nodes, 24-byte cells and two
   16×16 partitions. The map's address gap independently agrees with `0x1800` bytes.
 - [Pinned surface-load declarations](https://github.com/n64decomp/sm64/blob/9921382a68bb0c865e5e45eb594d9c64db59b1af/src/engine/surface_load.h)
   declare partition dimensions and the 8192/1024 boundary/cell constants. These
@@ -159,6 +159,77 @@ snapshot, 128 million memory reads per run, 1,024 distinct stored snapshots and
 Exhaustion aborts the capture, never samples or silently truncates it. Normal
 synthetic tests cover shared tails, pointer rejection, cycles, fresh reads,
 storage deduplication, before/after binding and every budget without a ROM.
+
+### Repeatability and coverage checker
+
+`python3 -m scripts.reference_emulator.floor_check --run RUN_A --repeat RUN_B
+--control CONTROL --out .cache/floor-inventory.json` validates two distinct,
+complete open-loop BOB captures and optionally a third capture made without list
+snapshots. Use identical schedules, recording gates and update counts. Output
+must be a new ignored path. Reports are size-bounded and strict JSON; failures do
+not write a success report.
+
+The checker binds floor/list reports to their action report, validates the full
+consecutive action chain and scheduled inputs, requires BOB scene 9/1/1, checks
+unchanged floor-call contexts, decoded float/bit agreement (including signed zero)
+and inside-action ordinal/timer/poll binding. It verifies snapshot digests,
+complete reachable next chains and returned-surface metadata/membership. All
+floor, action and list reports must repeat exactly. A control comparison removes
+only list-sidecar references; all other floor/action observations must agree.
+This is consistency checking, **not capture authentication**.
+
+The private inventory counts slopes, fractional/negative queries, absent floors,
+returned surfaces/planes and successive same-caller surface/height-bit changes.
+Changes sharing two ordered-triangle vertices are only candidate seam witnesses:
+a repeated caller may serve different objects, and a pair does not establish
+continuous movement or the solver's rejected candidates. List membership and
+unchanged before/after snapshots do not establish selection or traversal order.
+
+## Repeated natural BOB ramp window
+
+A broader **51-action** open-loop window, recording from poll count **3768**,
+replays the baseline's existing approach across flat ground, a ramp and raised
+flat ground. Two independent empty-save cold boots recorded **2,893 paired floor
+calls** each; their entire floor, action and list reports repeated exactly. A
+third cold boot without list snapshots matched every other floor/action field.
+This is a collision research corpus, not an expansion of native movement support.
+
+Reproduce into a new directory, using the generated baseline schedule:
+
+```sh
+python3 -m scripts.reference_emulator.capture \
+  --out .cache/emulator/bob-ramp-a --profile us0-action \
+  --schedule .cache/emulator/my-bob-baseline/hold-5/inputs.json \
+  --record-from-poll 3768 --updates 51 --max-vis 8800 --timeout 240 \
+  --observe-floor --observe-floor-lists
+# Repeat into bob-ramp-b. For bob-ramp-control omit only --observe-floor-lists.
+python3 -m scripts.reference_emulator.floor_check \
+  --run .cache/emulator/bob-ramp-a --repeat .cache/emulator/bob-ramp-b \
+  --control .cache/emulator/bob-ramp-control \
+  --out .cache/emulator/bob-ramp-inventory.json
+```
+
+Inventory: **31 returned surfaces**, **23 returned plane sets**, **928 sloped
+returns** and **1,723 fractional-X/Z calls**, all of those including a negative
+fractional coordinate. Only **289** queries were inside an action; **2,604** were
+outside. At previously corroborated return site `0x80253acc`, all **51** inputs
+matched the pre-action position bits and addressed MarioState's floor-pointer
+slot; all returned pointers matched its independent before-action diagnostic.
+That site observed **12** sloped returns and **three** successive surface changes
+whose triangles shared two vertices. No arbitrary query injection was used.
+
+Every returned surface appeared in static next chains with identical recorded
+metadata at both boundaries. All **5,786** boundary snapshots deduplicated to one
+unchanged memory image: **3,773** reachable nodes and **621** distinct floor
+surfaces. This corroborates declared list layout and membership within the window,
+not executed traversal, cell-axis mapping, eligibility or static/dynamic precedence.
+No returned dynamic surface or absent-floor case was observed; those are explicit
+coverage gaps. Query counts are not Mario ticks.
+
+The final capture used **114,261,928** bounded guest reads. Earlier 61-action
+attempts exhausted first the initial 32-million and then the 128-million read
+budget and were preserved only as ignored failure diagnostics. The successful
+scope was explicitly narrowed to 51 actions; failed runs are not evidence.
 
 ## Remaining collision questions
 

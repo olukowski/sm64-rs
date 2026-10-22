@@ -1,7 +1,8 @@
 """Bounded read-only partition snapshots, not observed solver traversal.
 
-US0 addresses: pinned STROOP MappingUS.map. Layout: pinned include/types.h
-and src/engine/surface_load.h declarations; see docs/research/floor-queries.md.
+US0 addresses: pinned STROOP MappingUS.map. Node/partition layout: pinned
+src/engine/surface_load.h; Surface layout: include/types.h declarations.
+See docs/research/floor-queries.md.
 Only category zero (declared floors) is recorded, for ALL 16x16 index pairs in
 both partitions. No coordinate-to-cell formula or sentinel semantics is assumed.
 """

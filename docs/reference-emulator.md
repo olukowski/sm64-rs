@@ -160,6 +160,12 @@ geometry into original collision. See [boundary, ABI provenance and remaining
 questions](research/floor-queries.md). Floor reports stay private and are not
 accepted as Mario update traces.
 
+Optional `--observe-floor-lists` snapshots all static/dynamic floor-head next chains
+at each recorded floor entry/return, with explicit read/link/storage budgets.
+`floor_check` compares two complete captures exactly and can check a no-list control;
+see [floor-list memory evidence](research/floor-queries.md#optional-floor-list-memory-snapshots).
+Memory-linked order is not observed resolver traversal or original collision logic.
+
 ## Tests and next boundary
 
 ```sh
